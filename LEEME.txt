@@ -1,0 +1,77 @@
+========================================
+🚀 GUÍA ULTRA RÁPIDA - DESPLIEGUE EC2
+========================================
+
+PASO 1: SUBIR A GITHUB
+-----------------------
+git init
+git add .
+git commit -m "API completa"
+git branch -M main
+git remote add origin https://github.com/TU_USUARIO/TU_REPO.git
+git push -u origin main
+
+
+PASO 2: CREAR EC2 EN AWS
+-------------------------
+- Ubuntu 22.04 LTS
+- t2.micro
+- Security Group: Puertos 22, 80
+- Crear/descargar Key Pair
+
+
+PASO 3: CONECTAR
+-----------------
+ssh -i tu-clave.pem ubuntu@TU_IP_PUBLICA
+
+
+PASO 4: EDITAR Y EJECUTAR (EN EC2)
+-----------------------------------
+# Descarga el script
+wget https://raw.githubusercontent.com/TU_USUARIO/TU_REPO/main/deploy_ec2.sh
+
+# Edita estas 2 líneas:
+nano deploy_ec2.sh
+  - GITHUB_REPO="https://github.com/TU_USUARIO/TU_REPO.git"
+  - DB_PASSWORD="TuPasswordSeguro123!"
+
+# Ejecuta
+chmod +x deploy_ec2.sh
+./deploy_ec2.sh
+
+
+LISTO! ✅
+---------
+API: http://TU_IP_EC2
+Docs: http://TU_IP_EC2/docs
+
+Usuario admin:
+  Email: admin@escuela.edu.mx
+  Pass: admin123
+
+
+ACTUALIZAR DESPUÉS:
+-------------------
+cd ~/red-social-api && git pull && sudo systemctl restart red-social-api
+
+
+VER LOGS:
+---------
+sudo journalctl -u red-social-api -f
+
+
+CORS YA CONFIGURADO:
+--------------------
+✓ allow_origins=["*"]
+✓ Puedes consumir desde cualquier app/web
+
+
+USAR EN TU APP MÓVIL:
+----------------------
+const API_URL = "http://TU_IP_EC2";
+
+fetch(`${API_URL}/api/auth/login`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ email: "...", password: "..." })
+})

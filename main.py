@@ -17,13 +17,13 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# Configurar CORS para permitir acceso desde apps móviles
+# CORS configurado para permitir TODAS las conexiones
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # En producción, especifica los orígenes permitidos
+    allow_origins=["*"],  # Permite conexión desde cualquier origen
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Todos los métodos HTTP
+    allow_headers=["*"],  # Todos los headers
 )
 
 # Incluir routers
