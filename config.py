@@ -1,23 +1,22 @@
 from pydantic_settings import BaseSettings
-from typing import Optional
 
 class Settings(BaseSettings):
     # Database
-    DB_HOST: str = "localhost"
-    DB_PORT: int = 3306
-    DB_USER: str = "root"
-    DB_PASSWORD: str = ""
-    DB_NAME: str = "red_social_escolar"
+    DB_HOST: str
+    DB_PORT: int
+    DB_USER: str
+    DB_PASSWORD: str
+    DB_NAME: str
     
     # JWT
-    SECRET_KEY: str = "tu_clave_secreta_muy_segura_cambiala"
-    ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    SECRET_KEY: str
+    ALGORITHM: str
+    ACCESS_TOKEN_EXPIRE_MINUTES: int
     
     # API
-    API_HOST: str = "0.0.0.0"
-    API_PORT: int = 8000
-    DEBUG: bool = True
+    API_HOST: str
+    API_PORT: int
+    DEBUG: bool
     
     @property
     def DATABASE_URL(self) -> str:
