@@ -45,13 +45,7 @@ def register(usuario_data: UsuarioCreate, db: Session = Depends(get_db)):
             detail="El correo electrónico ya está registrado"
         )
     
-    # Validar dominio de correo para ALUMNO y DOCENTE
-    if usuario_data.tipo_usuario != TipoUsuario.ADMINISTRADOR:
-        if not validar_dominio_correo(db, usuario_data.email, usuario_data.tipo_usuario):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"El dominio del correo no está permitido para usuarios de tipo {usuario_data.tipo_usuario}"
-            )
+    # Nota: Se permite cualquier dominio para evitar bloqueos en el registro.
     
     # Validar que ALUMNO tenga matrícula
     if usuario_data.tipo_usuario == TipoUsuario.ALUMNO and not usuario_data.matricula:
@@ -67,12 +61,7 @@ def register(usuario_data: UsuarioCreate, db: Session = Depends(get_db)):
             detail="Los docentes deben proporcionar su número de empleado"
         )
     
-    # Validar que tenga carrera (excepto ADMINISTRADOR)
-    if usuario_data.tipo_usuario != TipoUsuario.ADMINISTRADOR and not usuario_data.carrera_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Debe seleccionar una carrera"
-        )
+    # Nota: La carrera es opcional durante el registro.
     
     # Crear nuevo usuario
     hashed_password = get_password_hash(usuario_data.password)
