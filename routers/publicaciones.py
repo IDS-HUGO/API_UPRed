@@ -1,12 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, UploadFile
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func, and_
 from typing import List, Optional
+from pydantic import ValidationError
+import cloudinary
+import cloudinary.uploader
 from database import get_db
 from models import (
     Publicacion, TipoPublicacion, ComentarioPublicacion, ReaccionPublicacion,
     CatalogoReaccion, MultimediaPublicacion, Usuario, RolUsuario,
-    AudienciaPublicacion, Auditoria
+    AudienciaPublicacion, Auditoria, TipoMensaje
 )
 from schemas import (
     PublicacionCreate, PublicacionUpdate, PublicacionResponse,
@@ -16,8 +19,73 @@ from schemas import (
     BusquedaPublicaciones, Message
 )
 from auth import get_current_user
+from config import settings
 
 router = APIRouter(prefix="/api/publicaciones", tags=["Publicaciones"])
+
+cloudinary.config(
+    cloud_name=settings.CLOUDINARY_CLOUD_NAME,
+    api_key=settings.CLOUDINARY_API_KEY,
+    api_secret=settings.CLOUDINARY_API_SECRET,
+    secure=True
+)
+
+
+def _cloudinary_is_configured() -> bool:
+    return all([
+        settings.CLOUDINARY_CLOUD_NAME,
+        settings.CLOUDINARY_API_KEY,
+        settings.CLOUDINARY_API_SECRET
+    ])
+
+
+def _parse_int(value: Optional[str]) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    value_str = str(value).strip()
+    if value_str == "":
+        return None
+    try:
+        return int(value_str)
+    except ValueError:
+        return None
+
+
+def _parse_bool(value: Optional[str], default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    value_str = str(value).strip().lower()
+    if value_str in ("true", "1", "yes", "si", "on"):
+        return True
+    if value_str in ("false", "0", "no", "off"):
+        return False
+    return default
+
+
+async def _extract_publicacion_data(request: Request):
+    content_type = request.headers.get("content-type", "")
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        files = form.getlist("files")
+        data = {
+            "titulo": form.get("titulo"),
+            "contenido": form.get("contenido"),
+            "audiencia": form.get("audiencia") or AudienciaPublicacion.general,
+            "carrera_objetivo_id": _parse_int(form.get("carrera_objetivo_id")),
+            "cuatrimestre_objetivo_id": _parse_int(form.get("cuatrimestre_objetivo_id")),
+            "tipo_publicacion_id": _parse_int(form.get("tipo_publicacion_id")),
+            "permite_comentarios": _parse_bool(form.get("permite_comentarios"), True),
+            "es_anonima": _parse_bool(form.get("es_anonima"), False),
+        }
+        files = [f for f in files if isinstance(f, UploadFile)]
+        return data, files
+
+    payload = await request.json()
+    return payload, []
 
 # =====================================================================
 # ENDPOINTS DE TIPOS DE PUBLICACIÓN
@@ -220,33 +288,92 @@ def obtener_publicacion(publicacion_id: int, db: Session = Depends(get_db)):
     return pub_dict
 
 @router.post("/", response_model=PublicacionResponse, status_code=status.HTTP_201_CREATED)
-def crear_publicacion(
-    publicacion_data: PublicacionCreate,
+async def crear_publicacion(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
     """Crea una nueva publicación"""
+    try:
+        payload, files = await _extract_publicacion_data(request)
+        publicacion_data = PublicacionCreate.model_validate(payload)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.errors()
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cuerpo de solicitud invalido"
+        )
+
     # Validar audiencia
     if publicacion_data.audiencia == AudienciaPublicacion.carrera and not publicacion_data.carrera_objetivo_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Para publicaciones de carrera, debe especificar carrera_objetivo_id"
         )
-    
+
     # Si es general, eliminar referencias de carrera
     if publicacion_data.audiencia == AudienciaPublicacion.general:
         publicacion_data.carrera_objetivo_id = None
         publicacion_data.cuatrimestre_objetivo_id = None
-    
+
     nueva_publicacion = Publicacion(
         autor_id=current_user.id,
         **publicacion_data.model_dump()
     )
-    
+
     db.add(nueva_publicacion)
     db.flush()
-    
-    # Registrar en auditoría
+
+    if files:
+        if not _cloudinary_is_configured():
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Cloudinary no esta configurado"
+            )
+
+        for index, file in enumerate(files, start=1):
+            if not file.content_type or not file.content_type.startswith("image/"):
+                db.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Solo se permiten imagenes"
+                )
+            try:
+                upload_result = cloudinary.uploader.upload(
+                    file.file,
+                    folder="upred/publicaciones",
+                    resource_type="image"
+                )
+            except Exception:
+                db.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="Error al subir imagen a Cloudinary"
+                )
+
+            url = upload_result.get("secure_url") or upload_result.get("url")
+            if not url:
+                db.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="Cloudinary no devolvio URL"
+                )
+
+            multimedia = MultimediaPublicacion(
+                publicacion_id=nueva_publicacion.id,
+                tipo=TipoMensaje.imagen,
+                url_archivo=url,
+                url_miniatura=upload_result.get("secure_url"),
+                orden=index
+            )
+            db.add(multimedia)
+
+    # Registrar en auditoria
     auditoria = Auditoria(
         actor_usuario_id=current_user.id,
         accion="crear_publicacion",
@@ -258,10 +385,10 @@ def crear_publicacion(
         }
     )
     db.add(auditoria)
-    
+
     db.commit()
     db.refresh(nueva_publicacion)
-    
+
     return nueva_publicacion
 
 @router.put("/{publicacion_id}", response_model=PublicacionResponse)

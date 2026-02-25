@@ -247,6 +247,17 @@ class PublicacionUpdate(BaseModel):
     es_anonima: Optional[bool] = None
     activa: Optional[bool] = None
 
+class MultimediaPublicacionResponse(BaseModel):
+    id: int
+    publicacion_id: int
+    tipo: TipoMensaje
+    url_archivo: str
+    url_miniatura: Optional[str] = None
+    orden: int
+    creado_en: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
 class PublicacionResponse(PublicacionBase):
     id: int
     autor_id: int
@@ -256,6 +267,7 @@ class PublicacionResponse(PublicacionBase):
     autor: Optional[UsuarioResponse] = None
     tipo_publicacion: Optional[TipoPublicacionResponse] = None
     carrera_objetivo: Optional[CarreraResponse] = None
+    multimedia: Optional[List[MultimediaPublicacionResponse]] = None
     total_comentarios: int = 0
     total_reacciones: int = 0
     
