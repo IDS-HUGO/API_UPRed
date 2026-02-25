@@ -2,17 +2,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from database import engine, Base
-from routers import auth, publicaciones, carreras, usuarios
+from routers import auth, publicaciones, estructura, usuarios, grupos, mensajes, notificaciones
 from config import settings
 
-# Crear tablas en la base de datos
-Base.metadata.create_all(bind=engine)
+# Comentar esta línea para que no cree tablas automáticamente (usaremos el script SQL)
+# Base.metadata.create_all(bind=engine)
 
 # Inicializar FastAPI
 app = FastAPI(
-    title="API Red Social Escolar",
-    description="API REST para una red social escolar organizada por carreras con login, registro y CRUD de publicaciones",
-    version="1.0.0",
+    title="API UPRed - Red Social Universitaria",
+    description="API REST completa para red social universitaria con estructura académica, publicaciones, grupos, mensajería y notificaciones",
+    version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -28,25 +28,31 @@ app.add_middleware(
 
 # Incluir routers
 app.include_router(auth.router)
-app.include_router(publicaciones.router)
-app.include_router(carreras.router)
+app.include_router(estructura.router)
 app.include_router(usuarios.router)
+app.include_router(publicaciones.router)
+app.include_router(grupos.router)
+app.include_router(mensajes.router)
+app.include_router(notificaciones.router)
 
 # Ruta raíz
 @app.get("/")
 def root():
     return {
-        "mensaje": "Bienvenido a la API de Red Social Escolar",
-        "version": "1.0.0",
+        "mensaje": "Bienvenido a UPRed - Red Social Universitaria",
+        "version": "2.0.0",
         "documentacion": {
             "swagger": "/docs",
             "redoc": "/redoc"
         },
         "endpoints": {
             "autenticacion": "/api/auth",
+            "estructura_academica": "/api/estructura",
+            "usuarios": "/api/usuarios",
             "publicaciones": "/api/publicaciones",
-            "carreras": "/api/carreras",
-            "usuarios": "/api/usuarios"
+            "grupos": "/api/grupos",
+            "mensajeria": "/api/mensajes",
+            "notificaciones": "/api/notificaciones"
         }
     }
 
@@ -55,7 +61,8 @@ def root():
 def health_check():
     return {
         "status": "ok",
-        "database": "connected"
+        "database": "connected",
+        "version": "2.0.0"
     }
 
 # Manejador de errores global

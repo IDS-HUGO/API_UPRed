@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from datetime import timedelta
+from datetime import timedelta, datetime
 from database import get_db
-from models import Usuario, DominioCorreo, TipoUsuario
+from models import Usuario, CatalogoCorreo, RolUsuario, EstadoUsuario, Auditoria
 from schemas import (
     UsuarioCreate, UsuarioResponse, Token, UsuarioLogin, Message
 )
@@ -15,70 +15,74 @@ from config import settings
 
 router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
 
-def validar_dominio_correo(db: Session, email: str, tipo_usuario: TipoUsuario) -> bool:
-    """Valida que el dominio del correo esté permitido para el tipo de usuario"""
-    # Administradores no requieren validación de dominio
-    if tipo_usuario == TipoUsuario.ADMINISTRADOR:
-        return True
-    
-    # Extraer dominio del email
-    dominio = "@" + email.split("@")[1]
-    
-    # Buscar si el dominio está registrado para este tipo de usuario
-    dominio_permitido = db.query(DominioCorreo).filter(
-        DominioCorreo.dominio == dominio,
-        DominioCorreo.tipo_usuario == tipo_usuario,
-        DominioCorreo.activo == True
-    ).first()
-    
-    return dominio_permitido is not None
-
 @router.post("/register", response_model=UsuarioResponse, status_code=status.HTTP_201_CREATED)
 def register(usuario_data: UsuarioCreate, db: Session = Depends(get_db)):
-    """Registra un nuevo usuario en el sistema"""
+    """Registra un nuevo usuario en el sistema (solo correos del catálogo)"""
     
-    # Verificar si el email ya existe
-    existing_user = db.query(Usuario).filter(Usuario.email == usuario_data.email).first()
+    # Verificar si el correo ya está registrado
+    existing_user = db.query(Usuario).filter(
+        Usuario.correo_institucional == usuario_data.correo_institucional.lower()
+    ).first()
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="El correo electrónico ya está registrado"
         )
     
-    # Nota: Se permite cualquier dominio para evitar bloqueos en el registro.
+    # Verificar que el correo esté en el catálogo
+    catalogo = db.query(CatalogoCorreo).filter(
+        CatalogoCorreo.correo_institucional == usuario_data.correo_institucional.lower(),
+        CatalogoCorreo.habilitado == True,
+        CatalogoCorreo.usado == False
+    ).first()
     
-    # Validar que ALUMNO tenga matrícula
-    if usuario_data.tipo_usuario == TipoUsuario.ALUMNO and not usuario_data.matricula:
+    if not catalogo:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Los alumnos deben proporcionar su matrícula"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El correo no está autorizado o ya fue utilizado"
         )
     
-    # Validar que DOCENTE tenga número de empleado
-    if usuario_data.tipo_usuario == TipoUsuario.DOCENTE and not usuario_data.numero_empleado:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Los docentes deben proporcionar su número de empleado"
-        )
-    
-    # Nota: La carrera es opcional durante el registro.
+    # Usar datos del catálogo si no se proporcionaron
+    carrera_id = usuario_data.carrera_id or catalogo.carrera_id
+    cuatrimestre_id = usuario_data.cuatrimestre_id or catalogo.cuatrimestre_id
     
     # Crear nuevo usuario
     hashed_password = get_password_hash(usuario_data.password)
     new_user = Usuario(
+        correo_institucional=usuario_data.correo_institucional.lower(),
+        hash_contrasena=hashed_password,
         nombre=usuario_data.nombre,
-        apellido=usuario_data.apellido,
-        email=usuario_data.email,
-        password_hash=hashed_password,
-        tipo_usuario=usuario_data.tipo_usuario,
-        carrera_id=usuario_data.carrera_id,
-        matricula=usuario_data.matricula,
-        numero_empleado=usuario_data.numero_empleado,
-        activo=True,
-        verificado=False
+        apellido_paterno=usuario_data.apellido_paterno,
+        apellido_materno=usuario_data.apellido_materno,
+        fecha_nacimiento=usuario_data.fecha_nacimiento,
+        telefono=usuario_data.telefono,
+        foto_perfil_url=usuario_data.foto_perfil_url,
+        biografia=usuario_data.biografia,
+        carrera_id=carrera_id,
+        cuatrimestre_id=cuatrimestre_id,
+        rol=RolUsuario.estudiante,
+        estado=EstadoUsuario.activo,
+        correo_verificado=True  # Los correos del catálogo se consideran verificados
     )
     
     db.add(new_user)
+    db.flush()  # Para obtener el ID sin hacer commit
+    
+    # Marcar el correo del catálogo como usado
+    catalogo.usado = True
+    catalogo.consumido_por_usuario_id = new_user.id
+    catalogo.consumido_en = datetime.utcnow()
+    
+    # Registrar en auditoría
+    auditoria = Auditoria(
+        actor_usuario_id=new_user.id,
+        accion="registro_estudiante",
+        entidad="usuarios",
+        entidad_id=str(new_user.id),
+        detalle={"correo": new_user.correo_institucional}
+    )
+    db.add(auditoria)
+    
     db.commit()
     db.refresh(new_user)
     
@@ -89,7 +93,7 @@ def login(usuario_login: UsuarioLogin, db: Session = Depends(get_db)):
     """Inicia sesión y retorna un token JWT"""
     
     # Autenticar usuario
-    usuario = authenticate_user(db, usuario_login.email, usuario_login.password)
+    usuario = authenticate_user(db, usuario_login.correo_institucional, usuario_login.password)
     if not usuario:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -98,18 +102,22 @@ def login(usuario_login: UsuarioLogin, db: Session = Depends(get_db)):
         )
     
     # Verificar que el usuario esté activo
-    if not usuario.activo:
+    if usuario.estado != EstadoUsuario.activo:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Usuario inactivo. Contacta al administrador."
+            detail=f"Usuario {usuario.estado.value}. Contacta al administrador."
         )
     
     # Crear token
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": usuario.email, "tipo": usuario.tipo_usuario.value},
+        data={"sub": usuario.correo_institucional, "rol": usuario.rol.value},
         expires_delta=access_token_expires
     )
+    
+    # Actualizar última conexión
+    usuario.ultima_conexion_en = datetime.utcnow()
+    db.commit()
     
     return {
         "access_token": access_token,
@@ -132,17 +140,21 @@ def login_oauth2(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    if not usuario.activo:
+    if usuario.estado != EstadoUsuario.activo:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Usuario inactivo"
+            detail=f"Usuario {usuario.estado.value}"
         )
     
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": usuario.email, "tipo": usuario.tipo_usuario.value},
+        data={"sub": usuario.correo_institucional, "rol": usuario.rol.value},
         expires_delta=access_token_expires
     )
+    
+    # Actualizar última conexión
+    usuario.ultima_conexion_en = datetime.utcnow()
+    db.commit()
     
     return {
         "access_token": access_token,
@@ -151,21 +163,11 @@ def login_oauth2(
     }
 
 @router.get("/me", response_model=UsuarioResponse)
-def get_current_user_info(current_user: Usuario = Depends(get_current_user)):
-    """Obtiene la información del usuario autenticado"""
+async def get_me(current_user: Usuario = Depends(get_current_user)):
+    """Obtiene los datos del usuario actual"""
     return current_user
 
-@router.get("/dominios-correo")
-def get_dominios_correo(db: Session = Depends(get_db)):
-    """Obtiene la lista de dominios de correo permitidos por tipo de usuario"""
-    dominios = db.query(DominioCorreo).filter(DominioCorreo.activo == True).all()
-    
-    result = {
-        "ALUMNO": [],
-        "DOCENTE": []
-    }
-    
-    for dominio in dominios:
-        result[dominio.tipo_usuario.value].append(dominio.dominio)
-    
-    return result
+@router.post("/logout", response_model=Message)
+async def logout(current_user: Usuario = Depends(get_current_user)):
+    """Cierra la sesión del usuario (en el cliente debe eliminar el token)"""
+    return {"message": "Sesión cerrada correctamente"}

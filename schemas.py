@@ -1,42 +1,197 @@
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, field_validator
 from typing import Optional, List
-from datetime import datetime
-from models import TipoUsuario, TipoPublicacion
+from datetime import datetime, date
+from models import (
+    RolUsuario, EstadoUsuario, AudienciaPublicacion, PrivacidadGrupo,
+    RolMiembroGrupo, EstadoMembresia, TipoSalaChat, TipoMensaje
+)
+import uuid
 
-# ===== SCHEMAS DE USUARIO =====
+# =====================================================================
+# SCHEMAS GENERALES
+# =====================================================================
+
+class Message(BaseModel):
+    message: str
+
+# =====================================================================
+# SCHEMA DE SEDES
+# =====================================================================
+
+class SedeBase(BaseModel):
+    codigo: str = Field(..., min_length=1, max_length=30)
+    nombre: str = Field(..., min_length=1, max_length=120)
+    ciudad: Optional[str] = Field(None, max_length=80)
+
+class SedeCreate(SedeBase):
+    pass
+
+class SedeUpdate(BaseModel):
+    codigo: Optional[str] = Field(None, min_length=1, max_length=30)
+    nombre: Optional[str] = Field(None, min_length=1, max_length=120)
+    ciudad: Optional[str] = Field(None, max_length=80)
+
+class SedeResponse(SedeBase):
+    id: int
+    creado_en: datetime
+    
+    model_config = ConfigDict(from_attributes=True)
+
+# =====================================================================
+# SCHEMA DE FACULTADES
+# =====================================================================
+
+class FacultadBase(BaseModel):
+    codigo: str = Field(..., min_length=1, max_length=30)
+    nombre: str = Field(..., min_length=1, max_length=120)
+    sede_id: Optional[int] = None
+
+class FacultadCreate(FacultadBase):
+    pass
+
+class FacultadUpdate(BaseModel):
+    codigo: Optional[str] = Field(None, min_length=1, max_length=30)
+    nombre: Optional[str] = Field(None, min_length=1, max_length=120)
+    sede_id: Optional[int] = None
+
+class FacultadResponse(FacultadBase):
+    id: int
+    creado_en: datetime
+    actualizado_en: datetime
+    sede: Optional[SedeResponse] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+# =====================================================================
+# SCHEMA DE CARRERAS
+# =====================================================================
+
+class CarreraBase(BaseModel):
+    codigo: str = Field(..., min_length=1, max_length=30)
+    nombre: str = Field(..., min_length=1, max_length=120)
+    facultad_id: Optional[int] = None
+    activa: bool = True
+
+class CarreraCreate(CarreraBase):
+    pass
+
+class CarreraUpdate(BaseModel):
+    codigo: Optional[str] = Field(None, min_length=1, max_length=30)
+    nombre: Optional[str] = Field(None, min_length=1, max_length=120)
+    facultad_id: Optional[int] = None
+    activa: Optional[bool] = None
+
+class CarreraResponse(CarreraBase):
+    id: int
+    creado_en: datetime
+    actualizado_en: datetime
+    facultad: Optional[FacultadResponse] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+# =====================================================================
+# SCHEMA DE CUATRIMESTRES
+# =====================================================================
+
+class CuatrimestreBase(BaseModel):
+    numero: int = Field(..., ge=1, le=20)
+    descripcion: Optional[str] = Field(None, max_length=80)
+    activo: bool = True
+
+class CuatrimestreCreate(CuatrimestreBase):
+    pass
+
+class CuatrimestreUpdate(BaseModel):
+    numero: Optional[int] = Field(None, ge=1, le=20)
+    descripcion: Optional[str] = Field(None, max_length=80)
+    activo: Optional[bool] = None
+
+class CuatrimestreResponse(CuatrimestreBase):
+    id: int
+    creado_en: datetime
+    actualizado_en: datetime
+    
+    model_config = ConfigDict(from_attributes=True)
+
+# =====================================================================
+# SCHEMA DE CATÁLOGO DE CORREOS
+# =====================================================================
+
+class CatalogoCorreoBase(BaseModel):
+    correo_institucional: EmailStr
+    matricula: Optional[str] = Field(None, max_length=30)
+    carrera_id: Optional[int] = None
+    cuatrimestre_id: Optional[int] = None
+    habilitado: bool = True
+    notas: Optional[str] = None
+
+class CatalogoCorreoCreate(CatalogoCorreoBase):
+    pass
+
+class CatalogoCorreoUpdate(BaseModel):
+    habilitado: Optional[bool] = None
+    notas: Optional[str] = None
+
+class CatalogoCorreoResponse(CatalogoCorreoBase):
+    id: int
+    usado: bool
+    consumido_por_usuario_id: Optional[int] = None
+    consumido_en: Optional[datetime] = None
+    creado_en: datetime
+    actualizado_en: datetime
+    
+    model_config = ConfigDict(from_attributes=True)
+
+# =====================================================================
+# SCHEMA DE USUARIOS
+# =====================================================================
 
 class UsuarioBase(BaseModel):
-    nombre: str = Field(..., min_length=1, max_length=100)
-    apellido: str = Field(..., min_length=1, max_length=100)
-    email: EmailStr
-    tipo_usuario: TipoUsuario
+    correo_institucional: EmailStr
+    nombre: str = Field(..., min_length=1, max_length=80)
+    apellido_paterno: str = Field(..., min_length=1, max_length=80)
+    apellido_materno: Optional[str] = Field(None, max_length=80)
+    fecha_nacimiento: date
+    telefono: Optional[str] = Field(None, max_length=30)
+    foto_perfil_url: Optional[str] = None
+    biografia: Optional[str] = None
     carrera_id: Optional[int] = None
-    matricula: Optional[str] = Field(None, max_length=50)
-    numero_empleado: Optional[str] = Field(None, max_length=50)
+    cuatrimestre_id: Optional[int] = None
 
 class UsuarioCreate(UsuarioBase):
     password: str = Field(..., min_length=6, max_length=100)
 
 class UsuarioUpdate(BaseModel):
-    nombre: Optional[str] = Field(None, min_length=1, max_length=100)
-    apellido: Optional[str] = Field(None, min_length=1, max_length=100)
+    nombre: Optional[str] = Field(None, min_length=1, max_length=80)
+    apellido_paterno: Optional[str] = Field(None, min_length=1, max_length=80)
+    apellido_materno: Optional[str] = Field(None, max_length=80)
+    fecha_nacimiento: Optional[date] = None
+    telefono: Optional[str] = Field(None, max_length=30)
+    foto_perfil_url: Optional[str] = None
+    biografia: Optional[str] = None
     carrera_id: Optional[int] = None
-    matricula: Optional[str] = Field(None, max_length=50)
-    numero_empleado: Optional[str] = Field(None, max_length=50)
+    cuatrimestre_id: Optional[int] = None
 
 class UsuarioResponse(UsuarioBase):
     id: int
-    activo: bool
-    verificado: bool
-    created_at: datetime
+    rol: RolUsuario
+    estado: EstadoUsuario
+    correo_verificado: bool
+    ultima_conexion_en: Optional[datetime] = None
+    creado_en: datetime
+    actualizado_en: datetime
+    carrera: Optional[CarreraResponse] = None
+    cuatrimestre: Optional[CuatrimestreResponse] = None
     
     model_config = ConfigDict(from_attributes=True)
 
 class UsuarioLogin(BaseModel):
-    email: EmailStr
+    correo_institucional: EmailStr
     password: str
 
-# ===== SCHEMAS DE TOKEN =====
+# =====================================================================
+# SCHEMA DE TOKENS
+# =====================================================================
 
 class Token(BaseModel):
     access_token: str
@@ -44,119 +199,314 @@ class Token(BaseModel):
     usuario: UsuarioResponse
 
 class TokenData(BaseModel):
-    email: Optional[str] = None
-    tipo_usuario: Optional[TipoUsuario] = None
+    correo_institucional: Optional[str] = None
+    rol: Optional[RolUsuario] = None
 
-# ===== SCHEMAS DE CARRERA =====
+# =====================================================================
+# SCHEMA DE TIPOS DE PUBLICACIÓN
+# =====================================================================
 
-class CarreraBase(BaseModel):
-    nombre: str = Field(..., min_length=1, max_length=100)
-    descripcion: Optional[str] = None
+class TipoPublicacionBase(BaseModel):
+    codigo: str = Field(..., min_length=1, max_length=30)
+    nombre: str = Field(..., min_length=1, max_length=60)
+    descripcion: Optional[str] = Field(None, max_length=200)
 
-class CarreraCreate(CarreraBase):
+class TipoPublicacionCreate(TipoPublicacionBase):
     pass
 
-class CarreraResponse(CarreraBase):
+class TipoPublicacionResponse(TipoPublicacionBase):
     id: int
-    created_at: datetime
     
     model_config = ConfigDict(from_attributes=True)
 
-# ===== SCHEMAS DE PUBLICACION =====
+# =====================================================================
+# SCHEMA DE PUBLICACIONES
+# =====================================================================
 
 class PublicacionBase(BaseModel):
-    titulo: str = Field(..., min_length=1, max_length=200)
+    titulo: str = Field(..., min_length=1, max_length=180)
     contenido: str = Field(..., min_length=1)
-    imagen_url: Optional[str] = Field(None, max_length=500)
-    carrera_id: Optional[int] = None
-    tipo_publicacion: TipoPublicacion = TipoPublicacion.GENERAL
+    audiencia: AudienciaPublicacion = AudienciaPublicacion.general
+    carrera_objetivo_id: Optional[int] = None
+    cuatrimestre_objetivo_id: Optional[int] = None
+    tipo_publicacion_id: Optional[int] = None
+    permite_comentarios: bool = True
+    es_anonima: bool = False
 
 class PublicacionCreate(PublicacionBase):
     pass
 
 class PublicacionUpdate(BaseModel):
-    titulo: Optional[str] = Field(None, min_length=1, max_length=200)
+    titulo: Optional[str] = Field(None, min_length=1, max_length=180)
     contenido: Optional[str] = Field(None, min_length=1)
-    imagen_url: Optional[str] = Field(None, max_length=500)
-    carrera_id: Optional[int] = None
-    tipo_publicacion: Optional[TipoPublicacion] = None
-    activo: Optional[bool] = None
+    audiencia: Optional[AudienciaPublicacion] = None
+    carrera_objetivo_id: Optional[int] = None
+    cuatrimestre_objetivo_id: Optional[int] = None
+    tipo_publicacion_id: Optional[int] = None
+    permite_comentarios: Optional[bool] = None
+    es_anonima: Optional[bool] = None
+    activa: Optional[bool] = None
 
 class PublicacionResponse(PublicacionBase):
     id: int
-    usuario_id: int
-    activo: bool
-    created_at: datetime
-    updated_at: datetime
-    
-    # Datos relacionados
-    usuario: Optional[UsuarioResponse] = None
-    carrera: Optional[CarreraResponse] = None
-    total_likes: int = 0
+    autor_id: int
+    activa: bool
+    publicada_en: datetime
+    actualizada_en: datetime
+    autor: Optional[UsuarioResponse] = None
+    tipo_publicacion: Optional[TipoPublicacionResponse] = None
+    carrera_objetivo: Optional[CarreraResponse] = None
     total_comentarios: int = 0
+    total_reacciones: int = 0
     
     model_config = ConfigDict(from_attributes=True)
 
-# ===== SCHEMAS DE COMENTARIO =====
+# =====================================================================
+# SCHEMA DE COMENTARIOS
+# =====================================================================
 
-class ComentarioBase(BaseModel):
-    contenido: str = Field(..., min_length=1)
-
-class ComentarioCreate(ComentarioBase):
+class ComentarioPublicacionBase(BaseModel):
     publicacion_id: int
+    contenido: str = Field(..., min_length=1)
+    comentario_padre_id: Optional[int] = None
 
-class ComentarioUpdate(BaseModel):
+class ComentarioPublicacionCreate(ComentarioPublicacionBase):
+    pass
+
+class ComentarioPublicacionUpdate(BaseModel):
     contenido: Optional[str] = Field(None, min_length=1)
     activo: Optional[bool] = None
 
-class ComentarioResponse(ComentarioBase):
+class ComentarioPublicacionResponse(ComentarioPublicacionBase):
     id: int
-    publicacion_id: int
     usuario_id: int
     activo: bool
-    created_at: datetime
-    
+    creado_en: datetime
+    actualizado_en: datetime
     usuario: Optional[UsuarioResponse] = None
     
     model_config = ConfigDict(from_attributes=True)
 
-# ===== SCHEMAS DE LIKE =====
+# =====================================================================
+# SCHEMA DE REACCIONES
+# =====================================================================
 
-class LikeCreate(BaseModel):
-    publicacion_id: int
+class CatalogoReaccionBase(BaseModel):
+    codigo: str = Field(..., min_length=1, max_length=30)
+    nombre: str = Field(..., min_length=1, max_length=40)
 
-class LikeResponse(BaseModel):
-    id: int
-    publicacion_id: int
-    usuario_id: int
-    created_at: datetime
-    
-    model_config = ConfigDict(from_attributes=True)
-
-# ===== SCHEMAS DE DOMINIO DE CORREO =====
-
-class DominioCorreoBase(BaseModel):
-    dominio: str = Field(..., min_length=1, max_length=100)
-    tipo_usuario: TipoUsuario
-    activo: bool = True
-
-class DominioCorreoCreate(DominioCorreoBase):
+class CatalogoReaccionCreate(CatalogoReaccionBase):
     pass
 
-class DominioCorreoResponse(DominioCorreoBase):
+class CatalogoReaccionResponse(CatalogoReaccionBase):
     id: int
-    created_at: datetime
     
     model_config = ConfigDict(from_attributes=True)
 
-# ===== SCHEMAS GENERALES =====
+class ReaccionPublicacionCreate(BaseModel):
+    publicacion_id: int
+    reaccion_id: int
 
-class Message(BaseModel):
-    message: str
+class ReaccionPublicacionResponse(BaseModel):
+    publicacion_id: int
+    usuario_id: int
+    reaccion_id: int
+    creado_en: datetime
+    reaccion: Optional[CatalogoReaccionResponse] = None
+    
+    model_config = ConfigDict(from_attributes=True)
 
-class PaginatedResponse(BaseModel):
-    total: int
-    page: int
-    per_page: int
-    total_pages: int
-    data: List[dict]
+# =====================================================================
+# SCHEMA DE GRUPOS
+# =====================================================================
+
+class GrupoBase(BaseModel):
+    nombre: str = Field(..., min_length=1, max_length=120)
+    descripcion: Optional[str] = None
+    carrera_id: Optional[int] = None
+    privacidad: PrivacidadGrupo = PrivacidadGrupo.publico
+    foto_grupo_url: Optional[str] = None
+
+class GrupoCreate(GrupoBase):
+    pass
+
+class GrupoUpdate(BaseModel):
+    nombre: Optional[str] = Field(None, min_length=1, max_length=120)
+    descripcion: Optional[str] = None
+    privacidad: Optional[PrivacidadGrupo] = None
+    foto_grupo_url: Optional[str] = None
+
+class GrupoResponse(GrupoBase):
+    id: int
+    usuario_dueno_id: int
+    creado_en: datetime
+    actualizado_en: datetime
+    dueno: Optional[UsuarioResponse] = None
+    carrera: Optional[CarreraResponse] = None
+    total_miembros: int = 0
+    
+    model_config = ConfigDict(from_attributes=True)
+
+# =====================================================================
+# SCHEMA DE MIEMBROS DE GRUPO
+# =====================================================================
+
+class MiembroGrupoCreate(BaseModel):
+    grupo_id: int
+    usuario_id: int
+    rol_miembro: RolMiembroGrupo = RolMiembroGrupo.miembro
+
+class MiembroGrupoUpdate(BaseModel):
+    rol_miembro: Optional[RolMiembroGrupo] = None
+    estado_membresia: Optional[EstadoMembresia] = None
+
+class MiembroGrupoResponse(BaseModel):
+    grupo_id: int
+    usuario_id: int
+    rol_miembro: RolMiembroGrupo
+    estado_membresia: EstadoMembresia
+    unido_en: datetime
+    salio_en: Optional[datetime] = None
+    usuario: Optional[UsuarioResponse] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+# =====================================================================
+# SCHEMA DE PUBLICACIONES DE GRUPO
+# =====================================================================
+
+class PublicacionGrupoBase(BaseModel):
+    titulo: str = Field(..., min_length=1, max_length=180)
+    contenido: str = Field(..., min_length=1)
+
+class PublicacionGrupoCreate(PublicacionGrupoBase):
+    grupo_id: int
+
+class PublicacionGrupoUpdate(BaseModel):
+    titulo: Optional[str] = Field(None, min_length=1, max_length=180)
+    contenido: Optional[str] = Field(None, min_length=1)
+
+class PublicacionGrupoResponse(PublicacionGrupoBase):
+    id: int
+    grupo_id: int
+    autor_id: int
+    creado_en: datetime
+    actualizado_en: datetime
+    autor: Optional[UsuarioResponse] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+# =====================================================================
+# SCHEMA DE MENSAJERÍA
+# =====================================================================
+
+class MensajeCreate(BaseModel):
+    sala_chat_id: Optional[int] = None
+    destinatario_id: Optional[int] = None  # Para mensajes directos
+    tipo_mensaje: TipoMensaje = TipoMensaje.texto
+    contenido: Optional[str] = None
+    url_archivo: Optional[str] = None
+    metadatos: Optional[dict] = {}
+
+class MensajeResponse(BaseModel):
+    id: int
+    mensaje_uuid: uuid.UUID
+    sala_chat_id: int
+    remitente_id: int
+    tipo_mensaje: TipoMensaje
+    contenido: Optional[str] = None
+    url_archivo: Optional[str] = None
+    metadatos: dict
+    enviado_en: datetime
+    editado_en: Optional[datetime] = None
+    eliminado_en: Optional[datetime] = None
+    remitente: Optional[UsuarioResponse] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+class SalaChatResponse(BaseModel):
+    id: int
+    sala_uuid: uuid.UUID
+    tipo_sala: TipoSalaChat
+    usuario_a_id: Optional[int] = None
+    usuario_b_id: Optional[int] = None
+    grupo_id: Optional[int] = None
+    creado_en: datetime
+    actualizado_en: datetime
+    ultimo_mensaje: Optional[MensajeResponse] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+# =====================================================================
+# SCHEMA DE NOTIFICACIONES
+# =====================================================================
+
+class NotificacionCreate(BaseModel):
+    usuario_id: int
+    tipo: str = Field(..., max_length=50)
+    titulo: str = Field(..., min_length=1, max_length=120)
+    cuerpo: Optional[str] = None
+    datos: Optional[dict] = {}
+
+class NotificacionUpdate(BaseModel):
+    leida: bool
+
+class NotificacionResponse(BaseModel):
+    id: int
+    usuario_id: int
+    tipo: str
+    titulo: str
+    cuerpo: Optional[str] = None
+    datos: dict
+    leida: bool
+    creada_en: datetime
+    leida_en: Optional[datetime] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+# =====================================================================
+# SCHEMA DE SEGUIDORES
+# =====================================================================
+
+class SeguidorCreate(BaseModel):
+    seguido_id: int
+
+class SeguidorResponse(BaseModel):
+    seguidor_id: int
+    seguido_id: int
+    creado_en: datetime
+    seguido: Optional[UsuarioResponse] = None
+    seguidor: Optional[UsuarioResponse] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+# =====================================================================
+# SCHEMAS DE BÚSQUEDA
+# =====================================================================
+
+class BusquedaUsuarios(BaseModel):
+    query: Optional[str] = None
+    carrera_id: Optional[int] = None
+    cuatrimestre_id: Optional[int] = None
+    rol: Optional[RolUsuario] = None
+    estado: Optional[EstadoUsuario] = None
+    limit: int = Field(default=20, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+
+class BusquedaPublicaciones(BaseModel):
+    query: Optional[str] = None
+    autor_id: Optional[int] = None
+    carrera_id: Optional[int] = None
+    cuatrimestre_id: Optional[int] = None
+    tipo_publicacion_id: Optional[int] = None
+    audiencia: Optional[AudienciaPublicacion] = None
+    activa: bool = True
+    limit: int = Field(default=20, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+
+class BusquedaGrupos(BaseModel):
+    query: Optional[str] = None
+    carrera_id: Optional[int] = None
+    privacidad: Optional[PrivacidadGrupo] = None
+    limit: int = Field(default=20, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)

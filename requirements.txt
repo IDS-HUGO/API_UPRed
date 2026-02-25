@@ -1,24 +1,24 @@
-# FastAPI y dependencias core
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-gunicorn==21.2.0
-pydantic==2.5.0
-pydantic-settings==2.1.0
+# FastAPI y dependencias principales
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
 python-multipart==0.0.6
 
-# Base de datos
-sqlalchemy==2.0.23
-pymysql==1.1.0
-cryptography==41.0.7
+# Base de datos PostgreSQL
+psycopg2-binary==2.9.9
+SQLAlchemy==2.0.25
 
 # Autenticación y seguridad
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
-bcrypt==4.1.1
+bcrypt==4.1.2
 
-# Email validation
+# Validación de datos
+pydantic==2.5.3
+pydantic-settings==2.1.0
 email-validator==2.1.0
 
 # Utilidades
 python-dotenv==1.0.0
-requests==2.31.0
+
+# CORS
+fastapi-cors==0.0.6

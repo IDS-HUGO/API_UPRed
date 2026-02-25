@@ -7,7 +7,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from config import settings
 from database import get_db
-from models import Usuario, TipoUsuario
+from models import Usuario, RolUsuario, EstadoUsuario
 from schemas import TokenData
 
 # Configuración de encriptación de contraseñas
@@ -36,12 +36,14 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
 
-def authenticate_user(db: Session, email: str, password: str) -> Optional[Usuario]:
-    """Autentica un usuario con email y contraseña"""
-    usuario = db.query(Usuario).filter(Usuario.email == email).first()
+def authenticate_user(db: Session, correo_institucional: str, password: str) -> Optional[Usuario]:
+    """Autentica un usuario con correo institucional y contraseña"""
+    usuario = db.query(Usuario).filter(
+        Usuario.correo_institucional == correo_institucional.lower()
+    ).first()
     if not usuario:
         return None
-    if not verify_password(password, usuario.password_hash):
+    if not verify_password(password, usuario.hash_contrasena):
         return None
     return usuario
 
@@ -58,22 +60,28 @@ async def get_current_user(
     
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        email: str = payload.get("sub")
-        if email is None:
+        correo: str = payload.get("sub")
+        if correo is None:
             raise credentials_exception
-        token_data = TokenData(email=email)
+        token_data = TokenData(correo_institucional=correo)
     except JWTError:
         raise credentials_exception
     
-    usuario = db.query(Usuario).filter(Usuario.email == token_data.email).first()
+    usuario = db.query(Usuario).filter(
+        Usuario.correo_institucional == token_data.correo_institucional
+    ).first()
     if usuario is None:
         raise credentials_exception
     
-    if not usuario.activo:
+    if usuario.estado != EstadoUsuario.activo:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Usuario inactivo"
+            detail=f"Usuario {usuario.estado.value}. Contacta al administrador."
         )
+    
+    # Actualizar última conexión
+    usuario.ultima_conexion_en = datetime.utcnow()
+    db.commit()
     
     return usuario
 
@@ -81,14 +89,17 @@ async def get_current_active_user(
     current_user: Usuario = Depends(get_current_user)
 ) -> Usuario:
     """Verifica que el usuario esté activo"""
-    if not current_user.activo:
-        raise HTTPException(status_code=400, detail="Usuario inactivo")
+    if current_user.estado != EstadoUsuario.activo:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="Usuario no activo"
+        )
     return current_user
 
-def require_roles(allowed_roles: list[TipoUsuario]):
+def require_roles(allowed_roles: list[RolUsuario]):
     """Decorador para requerir roles específicos"""
     def role_checker(current_user: Usuario = Depends(get_current_user)) -> Usuario:
-        if current_user.tipo_usuario not in allowed_roles:
+        if current_user.rol not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="No tienes permisos para realizar esta acción"
