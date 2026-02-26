@@ -306,6 +306,63 @@ def unirse_a_grupo(
     mensaje = "Solicitud enviada, espera aprobación" if estado_inicial == EstadoMembresia.pendiente else "Te has unido al grupo"
     return {"message": mensaje}
 
+@router.post("/{grupo_id}/miembros/{usuario_id}/invitar", response_model=Message, status_code=status.HTTP_201_CREATED)
+def invitar_miembro(
+    grupo_id: int,
+    usuario_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Invita a un usuario al grupo directamente (solo admin o dueño)"""
+    # Verificar permisos del usuario actual
+    miembro_actual = db.query(MiembroGrupo).filter(
+        MiembroGrupo.grupo_id == grupo_id,
+        MiembroGrupo.usuario_id == current_user.id,
+        MiembroGrupo.estado_membresia == EstadoMembresia.activo
+    ).first()
+    
+    if not miembro_actual or miembro_actual.rol_miembro not in [RolMiembroGrupo.dueno, RolMiembroGrupo.admin]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permisos para invitar miembros"
+        )
+    
+    # Verificar que el usuario a invitar existe
+    usuario_invitado = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario_invitado:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario no encontrado"
+        )
+    
+    # Verificar si ya es miembro
+    miembro_existente = db.query(MiembroGrupo).filter(
+        MiembroGrupo.grupo_id == grupo_id,
+        MiembroGrupo.usuario_id == usuario_id
+    ).first()
+    
+    if miembro_existente and miembro_existente.estado_membresia == EstadoMembresia.activo:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El usuario ya es miembro del grupo"
+        )
+    
+    # Agregar miembro directamente como activo
+    if miembro_existente:
+        miembro_existente.estado_membresia = EstadoMembresia.activo
+        miembro_existente.rol_miembro = RolMiembroGrupo.miembro
+    else:
+        nuevo_miembro = MiembroGrupo(
+            grupo_id=grupo_id,
+            usuario_id=usuario_id,
+            rol_miembro=RolMiembroGrupo.miembro,
+            estado_membresia=EstadoMembresia.activo
+        )
+        db.add(nuevo_miembro)
+    
+    db.commit()
+    return {"message": f"Usuario {usuario_invitado.nombre} agregado al grupo correctamente"}
+
 @router.post("/{grupo_id}/miembros/{usuario_id}/aprobar", response_model=Message)
 def aprobar_miembro(
     grupo_id: int,
