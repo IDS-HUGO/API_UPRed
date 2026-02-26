@@ -67,6 +67,20 @@ def buscar_usuarios(
     usuarios = q.limit(limit).all()
     return usuarios
 
+@router.get("/por-correo/{correo}", response_model=UsuarioResponse)
+def obtener_usuario_por_correo(
+    correo: str,
+    db: Session = Depends(get_db)
+):
+    """Obtiene un usuario por correo institucional (para iniciar chats)"""
+    usuario = db.query(Usuario).filter(Usuario.correo_institucional.ilike(correo)).first()
+    if not usuario:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Usuario con correo {correo} no encontrado"
+        )
+    return usuario
+
 @router.get("/{usuario_id}", response_model=UsuarioResponse)
 def obtener_usuario(usuario_id: int, db: Session = Depends(get_db)):
     """Obtiene un usuario por ID"""

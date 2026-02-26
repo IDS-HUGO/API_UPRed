@@ -154,9 +154,57 @@ def crear_o_obtener_sala_directa(
     
     return nueva_sala
 
-# =====================================================================
-# ENDPOINTS DE MENSAJES
-# =====================================================================
+@router.post("/salas/directa-por-correo", response_model=SalaChatResponse)
+def crear_o_obtener_sala_directa_por_correo(
+    correo: str = Query(..., min_length=1),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Crea o obtiene una sala de chat directa con un usuario por correo"""
+    # Buscar usuario por correo
+    otro_usuario = db.query(Usuario).filter(Usuario.correo_institucional.ilike(correo)).first()
+    if not otro_usuario:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Usuario con correo {correo} no encontrado"
+        )
+    
+    if otro_usuario.id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No puedes crear un chat contigo mismo"
+        )
+    
+    # Buscar sala existente (en cualquier orden de usuarios)
+    sala_existente = db.query(SalaChat).filter(
+        SalaChat.tipo_sala == TipoSalaChat.directo,
+        or_(
+            and_(
+                SalaChat.usuario_a_id == min(current_user.id, otro_usuario.id),
+                SalaChat.usuario_b_id == max(current_user.id, otro_usuario.id)
+            ),
+            and_(
+                SalaChat.usuario_a_id == max(current_user.id, otro_usuario.id),
+                SalaChat.usuario_b_id == min(current_user.id, otro_usuario.id)
+            )
+        )
+    ).first()
+    
+    if sala_existente:
+        return sala_existente
+    
+    # Crear nueva sala (siempre con usuario_a < usuario_b para consistencia)
+    nueva_sala = SalaChat(
+        tipo_sala=TipoSalaChat.directo,
+        usuario_a_id=min(current_user.id, otro_usuario.id),
+        usuario_b_id=max(current_user.id, otro_usuario.id)
+    )
+    
+    db.add(nueva_sala)
+    db.commit()
+    db.refresh(nueva_sala)
+    
+    return nueva_sala
 
 @router.get("/salas/{sala_id}/mensajes", response_model=List[MensajeResponse])
 def listar_mensajes(

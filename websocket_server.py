@@ -6,7 +6,7 @@ import uuid as uuid_pkg
 
 from dotenv import load_dotenv
 from flask import Flask, request
-from flask_socketio import SocketIO, emit, join_room
+from flask_socketio import SocketIO, emit, join_room, leave_room
 from flask_cors import CORS
 import pymysql
 from pymysql.cursors import DictCursor
@@ -41,6 +41,10 @@ socketio = SocketIO(
     logger=FLASK_ENV == "development",
     engineio_logger=FLASK_ENV == "development",
 )
+
+# Almacenamiento en memoria de usuarios conectados
+connected_users = {}  # {user_id: sid}
+
 
 
 # =====================================================================
@@ -276,6 +280,47 @@ def get_group_members(group_id):
         print(f"[DB-ERROR] get_group_members: {e}")
         return []
 
+
+def search_user_by_email(email):
+    """Busca un usuario por correo electrónico"""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT id, nombre, apellido_paterno, apellido_materno, correo_institucional
+                FROM usuarios
+                WHERE correo_institucional LIKE %s
+                LIMIT 1
+            """, (f"%{email}%",))
+            
+            result = cursor.fetchone()
+            return result
+            
+    except Exception as e:
+        print(f"[DB-ERROR] search_user_by_email: {e}")
+        return None
+
+
+def get_user_info(user_id):
+    """Obtiene información del usuario"""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT id, nombre, apellido_paterno, apellido_materno, correo_institucional, foto_perfil_url
+                FROM usuarios
+                WHERE id = %s
+            """, (int(user_id),))
+            
+            result = cursor.fetchone()
+            return result
+            
+    except Exception as e:
+        print(f"[DB-ERROR] get_user_info: {e}")
+        return None
+
 # =====================================================================
 # WEBSOCKET HANDLERS
 # =====================================================================
@@ -303,6 +348,10 @@ def on_connect(auth=None):
         print(f"[CONNECT-ERROR] user_id inválido: longitud={len(user_id)}")
         return False
 
+    # Registrar usuario conectado
+    connected_users[user_id] = request.sid
+    
+    # Unirse a room personal
     join_room(user_id)
     print(f"[CONNECT] user_id={user_id} | sid={request.sid} | unido a room='{user_id}'")
 
@@ -312,13 +361,51 @@ def on_connect(auth=None):
             "status": "connected",
             "user_id": user_id,
             "sid": request.sid,
+            "timestamp": str(__import__('datetime').datetime.utcnow())
         },
     )
 
 
 @socketio.on("disconnect")
 def on_disconnect():
-    print(f"[DISCONNECT] sid={request.sid}")
+    # Encontrar y remover usuario de connected_users
+    for user_id, sid in list(connected_users.items()):
+        if sid == request.sid:
+            del connected_users[user_id]
+            print(f"[DISCONNECT] user_id={user_id} | sid={request.sid}")
+            break
+    else:
+        print(f"[DISCONNECT] sid={request.sid} (usuario no encontrado)")
+
+
+@socketio.on("search_user_by_email")
+def on_search_user_by_email(data):
+    """Busca un usuario por correo electrónico"""
+    if not isinstance(data, dict):
+        emit("error", {"message": "Payload inválido"})
+        return
+    
+    email = data.get("email", "").strip()
+    
+    if not email:
+        emit("error", {"message": "email es requerido"})
+        return
+    
+    user = search_user_by_email(email)
+    
+    if user:
+        emit("user_found", {
+            "user_id": str(user['id']),
+            "nombre": user['nombre'],
+            "apellido_paterno": user['apellido_paterno'],
+            "apellido_materno": user['apellido_materno'],
+            "correo_institucional": user['correo_institucional'],
+            "foto_perfil_url": user.get('foto_perfil_url')
+        })
+        print(f"[SEARCH_USER] email={email} | user_id={user['id']}")
+    else:
+        emit("user_not_found", {"message": f"Usuario con correo {email} no encontrado"})
+        print(f"[SEARCH_USER_NOT_FOUND] email={email}")
 
 
 @socketio.on("join_group")
@@ -338,13 +425,56 @@ def on_join_group(data):
     room = f"group_{group_id}"
     join_room(room)
     
-    print(f"[JOIN_GROUP] user_id={user_id} | group_id={group_id} | room={room}")
+    print(f"[JOIN_GROUP] user_id={user_id} | group_id={group_id} | room={room} | sid={request.sid}")
     
     emit("joined_group", {
-        "group_id": group_id,
-        "user_id": user_id,
-        "room": room
+        "group_id": str(group_id),
+        "user_id": str(user_id),
+        "room": room,
+        "status": "joined",
+        "timestamp": str(__import__('datetime').datetime.utcnow())
     })
+    
+    # Notificar a otros miembros
+    emit("user_joined_group", {
+        "group_id": str(group_id),
+        "user_id": str(user_id),
+        "timestamp": str(__import__('datetime').datetime.utcnow())
+    }, room=room, skip_sid=request.sid)
+
+
+@socketio.on("leave_group")
+def on_leave_group(data):
+    """Usuario saliente de una sala de grupo"""
+    if not isinstance(data, dict):
+        emit("error", {"message": "Payload inválido para leave_group"})
+        return
+    
+    group_id = data.get("group_id")
+    user_id = data.get("user_id")
+    
+    if not group_id or not user_id:
+        emit("error", {"message": "group_id y user_id son requeridos"})
+        return
+    
+    room = f"group_{group_id}"
+    leave_room(room)
+    
+    print(f"[LEAVE_GROUP] user_id={user_id} | group_id={group_id} | room={room}")
+    
+    emit("left_group", {
+        "group_id": str(group_id),
+        "user_id": str(user_id),
+        "status": "left",
+        "timestamp": str(__import__('datetime').datetime.utcnow())
+    })
+    
+    # Notificar a otros miembros
+    emit("user_left_group", {
+        "group_id": str(group_id),
+        "user_id": str(user_id),
+        "timestamp": str(__import__('datetime').datetime.utcnow())
+    }, room=room)
 
 
 @socketio.on("send_direct_message")
@@ -364,10 +494,20 @@ def on_send_direct_message(data):
         emit("error", {"message": "sender_id y recipient_id son requeridos"})
         return
     
+    if not content and not file_url:
+        emit("error", {"message": "content o file_url es requerido"})
+        return
+    
     # Obtener o crear sala de chat
     sala = get_or_create_direct_chat(sender_id, recipient_id)
     if not sala:
         emit("error", {"message": "No se pudo crear la sala de chat"})
+        return
+    
+    # Obtener información del remitente
+    sender_info = get_user_info(sender_id)
+    if not sender_info:
+        emit("error", {"message": "No se pudo obtener información del remitente"})
         return
     
     # Guardar mensaje en BD
@@ -392,17 +532,20 @@ def on_send_direct_message(data):
     message_data = {
         "message_id": mensaje['id'],
         "message_uuid": mensaje['mensaje_uuid'],
-        "sender_id": sender_id,
-        "recipient_id": recipient_id,
+        "sender_id": str(sender_id),
+        "sender_nombre": sender_info['nombre'],
+        "sender_apellido": sender_info['apellido_paterno'],
+        "recipient_id": str(recipient_id),
         "type": message_type,
         "content": content,
         "file_url": file_url,
         "timestamp": str(mensaje['enviado_en']),
-        "sala_uuid": sala['sala_uuid']
+        "sala_uuid": sala['sala_uuid'],
+        "status": "delivered"
     }
     
-    # Enviar al remitente
-    emit("new_message", message_data, room=str(sender_id))
+    # Enviar al remitente (confirmación)
+    emit("message_sent", message_data, room=str(sender_id))
     
     # Enviar al destinatario
     emit("new_message", message_data, room=str(recipient_id))
@@ -427,10 +570,20 @@ def on_send_group_message(data):
         emit("error", {"message": "sender_id y group_id son requeridos"})
         return
     
+    if not content and not file_url:
+        emit("error", {"message": "content o file_url es requerido"})
+        return
+    
     # Obtener o crear sala grupal
     sala = get_or_create_group_chat(group_id)
     if not sala:
         emit("error", {"message": "No se pudo crear la sala de chat grupal"})
+        return
+    
+    # Obtener información del remitente
+    sender_info = get_user_info(sender_id)
+    if not sender_info:
+        emit("error", {"message": "No se pudo obtener información del remitente"})
         return
     
     # Guardar mensaje en BD
@@ -460,20 +613,24 @@ def on_send_group_message(data):
     message_data = {
         "message_id": mensaje['id'],
         "message_uuid": mensaje['mensaje_uuid'],
-        "sender_id": sender_id,
-        "group_id": group_id,
+        "sender_id": str(sender_id),
+        "sender_nombre": sender_info['nombre'],
+        "sender_apellido": sender_info['apellido_paterno'],
+        "group_id": str(group_id),
         "type": message_type,
         "content": content,
         "file_url": file_url,
         "timestamp": str(mensaje['enviado_en']),
-        "sala_uuid": sala['sala_uuid']
+        "sala_uuid": sala['sala_uuid'],
+        "status": "delivered"
     }
     
     room = f"group_{group_id}"
-    emit("new_group_message", message_data, room=room)
-    emit("new_group_message", message_data, room=str(sender_id))
     
-    print(f"[GROUP_MESSAGE] sender={sender_id} | group={group_id} | mensaje_id={mensaje['id']}")
+    # Enviar a todos en el grupo (incluyendo remitente)
+    emit("new_group_message", message_data, room=room)
+    
+    print(f"[GROUP_MESSAGE] sender={sender_id} | group={group_id} | mensaje_id={mensaje['id']} | miembros={len(members)}")
 
 
 @socketio.on("mark_as_read")
@@ -495,9 +652,88 @@ def on_mark_as_read(data):
     if success:
         emit("message_read_confirmed", {
             "message_id": message_id,
-            "user_id": user_id
+            "user_id": str(user_id),
+            "timestamp": str(__import__('datetime').datetime.utcnow())
         })
         print(f"[MESSAGE_READ] mensaje={message_id} | usuario={user_id}")
+
+
+@socketio.on("typing")
+def on_typing(data):
+    """Notifica que alguien está escribiendo"""
+    if not isinstance(data, dict):
+        emit("error", {"message": "Payload inválido"})
+        return
+    
+    sender_id = data.get("sender_id")
+    recipient_id = data.get("recipient_id")
+    group_id = data.get("group_id")
+    
+    if not sender_id:
+        emit("error", {"message": "sender_id es requerido"})
+        return
+    
+    if group_id:
+        # Notificación grupal
+        room = f"group_{group_id}"
+        emit("user_typing", {
+            "user_id": str(sender_id),
+            "group_id": str(group_id),
+            "timestamp": str(__import__('datetime').datetime.utcnow())
+        }, room=room, skip_sid=request.sid)
+        print(f"[TYPING_GROUP] user_id={sender_id} | group_id={group_id}")
+    elif recipient_id:
+        # Notificación individual
+        emit("user_typing", {
+            "user_id": str(sender_id),
+            "recipient_id": str(recipient_id),
+            "timestamp": str(__import__('datetime').datetime.utcnow())
+        }, room=str(recipient_id))
+        print(f"[TYPING] user_id={sender_id} | recipient_id={recipient_id}")
+
+
+@socketio.on("stop_typing")
+def on_stop_typing(data):
+    """Notifica que alguien dejó de escribir"""
+    if not isinstance(data, dict):
+        emit("error", {"message": "Payload inválido"})
+        return
+    
+    sender_id = data.get("sender_id")
+    recipient_id = data.get("recipient_id")
+    group_id = data.get("group_id")
+    
+    if not sender_id:
+        emit("error", {"message": "sender_id es requerido"})
+        return
+    
+    if group_id:
+        # Notificación grupal
+        room = f"group_{group_id}"
+        emit("user_stopped_typing", {
+            "user_id": str(sender_id),
+            "group_id": str(group_id),
+            "timestamp": str(__import__('datetime').datetime.utcnow())
+        }, room=room, skip_sid=request.sid)
+    elif recipient_id:
+        # Notificación individual
+        emit("user_stopped_typing", {
+            "user_id": str(sender_id),
+            "recipient_id": str(recipient_id),
+            "timestamp": str(__import__('datetime').datetime.utcnow())
+        }, room=str(recipient_id))
+
+
+@socketio.on("get_online_users")
+def on_get_online_users():
+    """Obtiene lista de usuarios en línea"""
+    online_users = list(connected_users.keys())
+    emit("online_users", {
+        "users": online_users,
+        "total": len(online_users),
+        "timestamp": str(__import__('datetime').datetime.utcnow())
+    })
+    print(f"[GET_ONLINE_USERS] total={len(online_users)}")
 
 
 @socketio.on("get_chat_history")

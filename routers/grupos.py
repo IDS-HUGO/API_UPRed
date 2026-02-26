@@ -8,8 +8,8 @@ from models import (
     RolMiembroGrupo, EstadoMembresia, PrivacidadGrupo, Auditoria
 )
 from schemas import (
-    GrupoCreate, GrupoUpdate, GrupoResponse,
-    MiembroGrupoCreate, MiembroGrupoUpdate, MiembroGrupoResponse,
+    GrupoCreate, GrupoUpdate, GrupoResponse, GrupoDetailResponse,
+    MiembroGrupoCreate, MiembroGrupoUpdate, MiembroGrupoResponse, MiembroGrupoDetailResponse,
     PublicacionGrupoCreate, PublicacionGrupoUpdate, PublicacionGrupoResponse,
     BusquedaGrupos, Message
 )
@@ -108,9 +108,9 @@ def listar_mis_grupos(
     
     return result
 
-@router.get("/{grupo_id}", response_model=GrupoResponse)
+@router.get("/{grupo_id}", response_model=GrupoDetailResponse)
 def obtener_grupo(grupo_id: int, db: Session = Depends(get_db)):
-    """Obtiene un grupo por ID"""
+    """Obtiene un grupo por ID con todos sus detalles y miembros"""
     grupo = db.query(Grupo).filter(Grupo.id == grupo_id).first()
     if not grupo:
         raise HTTPException(
@@ -118,11 +118,65 @@ def obtener_grupo(grupo_id: int, db: Session = Depends(get_db)):
             detail="Grupo no encontrado"
         )
     
-    grupo_dict = GrupoResponse.model_validate(grupo)
-    grupo_dict.total_miembros = db.query(func.count(MiembroGrupo.usuario_id)).filter(
-        MiembroGrupo.grupo_id == grupo.id,
+    # Obtener miembros activos del grupo
+    miembros = db.query(MiembroGrupo).filter(
+        MiembroGrupo.grupo_id == grupo_id,
         MiembroGrupo.estado_membresia == EstadoMembresia.activo
-    ).scalar() or 0
+    ).all()
+    
+    # Construir respuesta con miembros
+    grupo_dict = GrupoDetailResponse.model_validate(grupo)
+    grupo_dict.total_miembros = len(miembros)
+    grupo_dict.miembros = []
+    
+    for miembro in miembros:
+        usuario = miembro.usuario
+        miembro_detail = MiembroGrupoDetailResponse(
+            usuario_id=usuario.id,
+            nombre=usuario.nombre,
+            apellido_paterno=usuario.apellido_paterno,
+            apellido_materno=usuario.apellido_materno,
+            foto_perfil_url=usuario.foto_perfil_url,
+            rol_miembro=miembro.rol_miembro,
+            estado_membresia=miembro.estado_membresia
+        )
+        grupo_dict.miembros.append(miembro_detail)
+    
+    return grupo_dict
+
+@router.get("/{grupo_id}/detalle", response_model=GrupoDetailResponse)
+def obtener_grupo_detalle(grupo_id: int, db: Session = Depends(get_db)):
+    """Obtiene los detalles completos del grupo incluyendo miembros (alias)"""
+    grupo = db.query(Grupo).filter(Grupo.id == grupo_id).first()
+    if not grupo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Grupo no encontrado"
+        )
+    
+    # Obtener miembros activos del grupo
+    miembros = db.query(MiembroGrupo).filter(
+        MiembroGrupo.grupo_id == grupo_id,
+        MiembroGrupo.estado_membresia == EstadoMembresia.activo
+    ).all()
+    
+    # Construir respuesta con miembros
+    grupo_dict = GrupoDetailResponse.model_validate(grupo)
+    grupo_dict.total_miembros = len(miembros)
+    grupo_dict.miembros = []
+    
+    for miembro in miembros:
+        usuario = miembro.usuario
+        miembro_detail = MiembroGrupoDetailResponse(
+            usuario_id=usuario.id,
+            nombre=usuario.nombre,
+            apellido_paterno=usuario.apellido_paterno,
+            apellido_materno=usuario.apellido_materno,
+            foto_perfil_url=usuario.foto_perfil_url,
+            rol_miembro=miembro.rol_miembro,
+            estado_membresia=miembro.estado_membresia
+        )
+        grupo_dict.miembros.append(miembro_detail)
     
     return grupo_dict
 
@@ -175,7 +229,11 @@ def crear_grupo(
     db.commit()
     db.refresh(nuevo_grupo)
     
-    return nuevo_grupo
+    # Construir respuesta con todas las relaciones cargadas
+    grupo_dict = GrupoResponse.model_validate(nuevo_grupo)
+    grupo_dict.total_miembros = 1  # Incluye al creador
+    
+    return grupo_dict
 
 @router.put("/{grupo_id}", response_model=GrupoResponse)
 def actualizar_grupo(
@@ -355,6 +413,63 @@ def invitar_miembro(
         nuevo_miembro = MiembroGrupo(
             grupo_id=grupo_id,
             usuario_id=usuario_id,
+            rol_miembro=RolMiembroGrupo.miembro,
+            estado_membresia=EstadoMembresia.activo
+        )
+        db.add(nuevo_miembro)
+    
+    db.commit()
+    return {"message": f"Usuario {usuario_invitado.nombre} agregado al grupo correctamente"}
+
+@router.post("/{grupo_id}/miembros/invitar-por-correo", response_model=Message, status_code=status.HTTP_201_CREATED)
+def invitar_miembro_por_correo(
+    grupo_id: int,
+    correo: str = Query(..., min_length=1),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Invita a un usuario al grupo por correo (solo admin o dueño)"""
+    # Verificar permisos del usuario actual
+    miembro_actual = db.query(MiembroGrupo).filter(
+        MiembroGrupo.grupo_id == grupo_id,
+        MiembroGrupo.usuario_id == current_user.id,
+        MiembroGrupo.estado_membresia == EstadoMembresia.activo
+    ).first()
+    
+    if not miembro_actual or miembro_actual.rol_miembro not in [RolMiembroGrupo.dueno, RolMiembroGrupo.admin]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permisos para invitar miembros"
+        )
+    
+    # Buscar usuario por correo
+    usuario_invitado = db.query(Usuario).filter(Usuario.correo_institucional.ilike(correo)).first()
+    if not usuario_invitado:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Usuario con correo {correo} no encontrado"
+        )
+    
+    # Verificar si ya es miembro
+    miembro_existente = db.query(MiembroGrupo).filter(
+        MiembroGrupo.grupo_id == grupo_id,
+        MiembroGrupo.usuario_id == usuario_invitado.id
+    ).first()
+    
+    if miembro_existente and miembro_existente.estado_membresia == EstadoMembresia.activo:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El usuario ya es miembro del grupo"
+        )
+    
+    # Agregar miembro directamente como activo
+    if miembro_existente:
+        miembro_existente.estado_membresia = EstadoMembresia.activo
+        miembro_existente.rol_miembro = RolMiembroGrupo.miembro
+    else:
+        nuevo_miembro = MiembroGrupo(
+            grupo_id=grupo_id,
+            usuario_id=usuario_invitado.id,
             rol_miembro=RolMiembroGrupo.miembro,
             estado_membresia=EstadoMembresia.activo
         )
