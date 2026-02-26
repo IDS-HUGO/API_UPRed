@@ -408,6 +408,9 @@ class MiembroGrupoResponse(BaseModel):
     
     model_config = ConfigDict(from_attributes=True)
 
+# Resolve forward references declared in GrupoDetailResponse.
+GrupoDetailResponse.model_rebuild()
+
 # =====================================================================
 # SCHEMA DE PUBLICACIONES DE GRUPO
 # =====================================================================
