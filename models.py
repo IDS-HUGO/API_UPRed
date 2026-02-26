@@ -413,9 +413,9 @@ class DestinatarioMensaje(Base):
     __tablename__ = "destinatarios_mensaje"
     
     mensaje_id = Column(BigInteger, ForeignKey("mensajes.id", ondelete="CASCADE"), primary_key=True)
-    destinatario_id = ColuDateTime)
+    destinatario_id = Column(BigInteger, ForeignKey("usuarios.id", ondelete="CASCADE"), primary_key=True)
+    entregado_en = Column(DateTime)
     leido_en = Column(DateTime)
-    creado_en = Column(DateTime
     creado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
     
     # Relaciones
