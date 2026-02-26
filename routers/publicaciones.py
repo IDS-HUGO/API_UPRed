@@ -3,8 +3,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, func, and_
 from typing import List, Optional
 from pydantic import ValidationError
-import cloudinary
-import cloudinary.uploader
 from database import get_db
 from models import (
     Publicacion, TipoPublicacion, ComentarioPublicacion, ReaccionPublicacion,
@@ -22,21 +20,6 @@ from auth import get_current_user
 from config import settings
 
 router = APIRouter(prefix="/api/publicaciones", tags=["Publicaciones"])
-
-cloudinary.config(
-    cloud_name=settings.CLOUDINARY_CLOUD_NAME,
-    api_key=settings.CLOUDINARY_API_KEY,
-    api_secret=settings.CLOUDINARY_API_SECRET,
-    secure=True
-)
-
-
-def _cloudinary_is_configured() -> bool:
-    return all([
-        settings.CLOUDINARY_CLOUD_NAME,
-        settings.CLOUDINARY_API_KEY,
-        settings.CLOUDINARY_API_SECRET
-    ])
 
 
 def _parse_int(value: Optional[str]) -> Optional[int]:
@@ -215,6 +198,172 @@ def obtener_feed(
     
     return result
 
+@router.get("/recientes", response_model=List[PublicacionResponse])
+def obtener_publicaciones_recientes(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Obtiene las publicaciones más recientes"""
+    query = db.query(Publicacion).filter(Publicacion.activa == True)
+    
+    # Aplicar filtros de audiencia
+    if current_user.carrera_id:
+        query = query.filter(
+            or_(
+                Publicacion.audiencia == AudienciaPublicacion.general,
+                and_(
+                    Publicacion.audiencia == AudienciaPublicacion.carrera,
+                    Publicacion.carrera_objetivo_id == current_user.carrera_id
+                )
+            )
+        )
+    else:
+        query = query.filter(Publicacion.audiencia == AudienciaPublicacion.general)
+    
+    publicaciones = query.order_by(Publicacion.publicada_en.desc()).offset(skip).limit(limit).all()
+    
+    result = []
+    for pub in publicaciones:
+        pub_dict = PublicacionResponse.model_validate(pub)
+        pub_dict.total_comentarios = db.query(func.count(ComentarioPublicacion.id)).filter(
+            ComentarioPublicacion.publicacion_id == pub.id,
+            ComentarioPublicacion.activo == True
+        ).scalar() or 0
+        pub_dict.total_reacciones = db.query(func.count(ReaccionPublicacion.publicacion_id)).filter(
+            ReaccionPublicacion.publicacion_id == pub.id
+        ).scalar() or 0
+        result.append(pub_dict)
+    
+    return result
+
+@router.get("/por-carrera/{carrera_id}", response_model=List[PublicacionResponse])
+def obtener_publicaciones_por_carrera(
+    carrera_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Obtiene publicaciones filtradas por carrera específica"""
+    query = db.query(Publicacion).filter(
+        Publicacion.activa == True,
+        or_(
+            Publicacion.audiencia == AudienciaPublicacion.general,
+            and_(
+                Publicacion.audiencia == AudienciaPublicacion.carrera,
+                Publicacion.carrera_objetivo_id == carrera_id
+            )
+        )
+    )
+    
+    publicaciones = query.order_by(Publicacion.publicada_en.desc()).offset(skip).limit(limit).all()
+    
+    result = []
+    for pub in publicaciones:
+        pub_dict = PublicacionResponse.model_validate(pub)
+        pub_dict.total_comentarios = db.query(func.count(ComentarioPublicacion.id)).filter(
+            ComentarioPublicacion.publicacion_id == pub.id,
+            ComentarioPublicacion.activo == True
+        ).scalar() or 0
+        pub_dict.total_reacciones = db.query(func.count(ReaccionPublicacion.publicacion_id)).filter(
+            ReaccionPublicacion.publicacion_id == pub.id
+        ).scalar() or 0
+        result.append(pub_dict)
+    
+    return result
+
+@router.get("/populares", response_model=List[PublicacionResponse])
+def obtener_publicaciones_populares(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Obtiene las publicaciones más populares (más reacciones y comentarios)"""
+    query = db.query(Publicacion).filter(Publicacion.activa == True)
+    
+    if current_user.carrera_id:
+        query = query.filter(
+            or_(
+                Publicacion.audiencia == AudienciaPublicacion.general,
+                and_(
+                    Publicacion.audiencia == AudienciaPublicacion.carrera,
+                    Publicacion.carrera_objetivo_id == current_user.carrera_id
+                )
+            )
+        )
+    else:
+        query = query.filter(Publicacion.audiencia == AudienciaPublicacion.general)
+    
+    # Subconsulta para contar reacciones
+    subq_reacciones = db.query(
+        ReaccionPublicacion.publicacion_id,
+        func.count(ReaccionPublicacion.usuario_id).label('num_reacciones')
+    ).group_by(ReaccionPublicacion.publicacion_id).subquery()
+    
+    # Subconsulta para contar comentarios
+    subq_comentarios = db.query(
+        ComentarioPublicacion.publicacion_id,
+        func.count(ComentarioPublicacion.id).label('num_comentarios')
+    ).filter(ComentarioPublicacion.activo == True).group_by(ComentarioPublicacion.publicacion_id).subquery()
+    
+    # Join con las subconsultas
+    query = query.outerjoin(subq_reacciones, Publicacion.id == subq_reacciones.c.publicacion_id)
+    query = query.outerjoin(subq_comentarios, Publicacion.id == subq_comentarios.c.publicacion_id)
+    
+    # Ordenar por popularidad (reacciones + comentarios)
+    query = query.order_by(
+        (func.coalesce(subq_reacciones.c.num_reacciones, 0) + func.coalesce(subq_comentarios.c.num_comentarios, 0)).desc(),
+        Publicacion.publicada_en.desc()
+    )
+    
+    publicaciones = query.offset(skip).limit(limit).all()
+    
+    result = []
+    for pub in publicaciones:
+        pub_dict = PublicacionResponse.model_validate(pub)
+        pub_dict.total_comentarios = db.query(func.count(ComentarioPublicacion.id)).filter(
+            ComentarioPublicacion.publicacion_id == pub.id,
+            ComentarioPublicacion.activo == True
+        ).scalar() or 0
+        pub_dict.total_reacciones = db.query(func.count(ReaccionPublicacion.publicacion_id)).filter(
+            ReaccionPublicacion.publicacion_id == pub.id
+        ).scalar() or 0
+        result.append(pub_dict)
+    
+    return result
+
+@router.get("/mis-publicaciones", response_model=List[PublicacionResponse])
+def obtener_mis_publicaciones(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Obtiene todas las publicaciones del usuario actual"""
+    query = db.query(Publicacion).filter(
+        Publicacion.autor_id == current_user.id,
+        Publicacion.activa == True
+    )
+    
+    publicaciones = query.order_by(Publicacion.publicada_en.desc()).offset(skip).limit(limit).all()
+    
+    result = []
+    for pub in publicaciones:
+        pub_dict = PublicacionResponse.model_validate(pub)
+        pub_dict.total_comentarios = db.query(func.count(ComentarioPublicacion.id)).filter(
+            ComentarioPublicacion.publicacion_id == pub.id,
+            ComentarioPublicacion.activo == True
+        ).scalar() or 0
+        pub_dict.total_reacciones = db.query(func.count(ReaccionPublicacion.publicacion_id)).filter(
+            ReaccionPublicacion.publicacion_id == pub.id
+        ).scalar() or 0
+        result.append(pub_dict)
+    
+    return result
+
 @router.get("/buscar", response_model=List[PublicacionResponse])
 def buscar_publicaciones(
     query: str = Query(..., min_length=1),
@@ -328,14 +477,8 @@ async def crear_publicacion(
     db.add(nueva_publicacion)
     db.flush()
 
+    # Guardar archivos en la base de datos directamente
     if files:
-        if not _cloudinary_is_configured():
-            db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Cloudinary no esta configurado"
-            )
-
         for index, file in enumerate(files, start=1):
             if not file.content_type or not file.content_type.startswith("image/"):
                 db.rollback()
@@ -344,34 +487,32 @@ async def crear_publicacion(
                     detail="Solo se permiten imagenes"
                 )
             try:
-                upload_result = cloudinary.uploader.upload(
-                    file.file,
-                    folder="upred/publicaciones",
-                    resource_type="image"
+                # Leer el contenido del archivo
+                file_data = await file.read()
+                
+                # Validar tamaño (máximo 5MB)
+                if len(file_data) > 5 * 1024 * 1024:
+                    db.rollback()
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="La imagen no debe superar 5MB"
+                    )
+                
+                # Crear registro de multimedia con datos binarios
+                multimedia = MultimediaPublicacion(
+                    publicacion_id=nueva_publicacion.id,
+                    tipo=TipoMensaje.imagen,
+                    datos_archivo=file_data,
+                    url_archivo=f"image_{nueva_publicacion.id}_{index}",  # Referencia
+                    orden=index
                 )
-            except Exception:
+                db.add(multimedia)
+            except Exception as e:
                 db.rollback()
                 raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail="Error al subir imagen a Cloudinary"
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Error al guardar imagen: {str(e)}"
                 )
-
-            url = upload_result.get("secure_url") or upload_result.get("url")
-            if not url:
-                db.rollback()
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail="Cloudinary no devolvio URL"
-                )
-
-            multimedia = MultimediaPublicacion(
-                publicacion_id=nueva_publicacion.id,
-                tipo=TipoMensaje.imagen,
-                url_archivo=url,
-                url_miniatura=upload_result.get("secure_url"),
-                orden=index
-            )
-            db.add(multimedia)
 
     # Registrar en auditoria
     auditoria = Auditoria(

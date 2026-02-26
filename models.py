@@ -1,7 +1,6 @@
-from sqlalchemy import Boolean, Column, Integer, BigInteger, String, Text, DateTime, Date, SmallInteger, Enum as SQLEnum, ForeignKey, CheckConstraint, UniqueConstraint, Index, TIMESTAMP
+from sqlalchemy import Boolean, Column, Integer, BigInteger, String, Text, DateTime, Date, SmallInteger, Enum as SQLEnum, ForeignKey, CheckConstraint, UniqueConstraint, Index, TIMESTAMP, JSON, LargeBinary
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from sqlalchemy.dialects.postgresql import UUID, JSONB, CITEXT
 from database import Base
 import enum
 import uuid as uuid_pkg
@@ -61,7 +60,7 @@ class Sede(Base):
     codigo = Column(String(30), nullable=False, unique=True)
     nombre = Column(String(120), nullable=False)
     ciudad = Column(String(80))
-    creado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    creado_en = Column(DateTime, nullable=False, server_default=func.now())
     
     # Relaciones
     facultades = relationship("Facultad", back_populates="sede")
@@ -73,8 +72,8 @@ class Facultad(Base):
     codigo = Column(String(30), nullable=False, unique=True)
     nombre = Column(String(120), nullable=False)
     sede_id = Column(BigInteger, ForeignKey("sedes.id", ondelete="SET NULL"))
-    creado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
-    actualizado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    creado_en = Column(DateTime, nullable=False, server_default=func.now())
+    actualizado_en = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
     
     # Relaciones
     sede = relationship("Sede", back_populates="facultades")
@@ -88,8 +87,8 @@ class Carrera(Base):
     nombre = Column(String(120), nullable=False)
     facultad_id = Column(BigInteger, ForeignKey("facultades.id", ondelete="SET NULL"))
     activa = Column(Boolean, nullable=False, default=True)
-    creado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
-    actualizado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    creado_en = Column(DateTime, nullable=False, server_default=func.now())
+    actualizado_en = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
     
     # Relaciones
     facultad = relationship("Facultad", back_populates="carreras")
@@ -105,8 +104,8 @@ class Cuatrimestre(Base):
     numero = Column(SmallInteger, nullable=False, unique=True)
     descripcion = Column(String(80))
     activo = Column(Boolean, nullable=False, default=True)
-    creado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
-    actualizado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    creado_en = Column(DateTime, nullable=False, server_default=func.now())
+    actualizado_en = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
     
     __table_args__ = (
         CheckConstraint('numero >= 1 AND numero <= 20', name='chk_numero_cuatrimestre'),
@@ -124,17 +123,17 @@ class CatalogoCorreo(Base):
     __tablename__ = "catalogo_correos"
     
     id = Column(BigInteger, primary_key=True, index=True)
-    correo_institucional = Column(String, nullable=False, unique=True)  # CITEXT en PostgreSQL
+    correo_institucional = Column(String(255), nullable=False, unique=True, index=True)
     matricula = Column(String(30), unique=True)
     carrera_id = Column(BigInteger, ForeignKey("carreras.id", ondelete="SET NULL"))
     cuatrimestre_id = Column(BigInteger, ForeignKey("cuatrimestres.id", ondelete="SET NULL"))
     habilitado = Column(Boolean, nullable=False, default=True)
     usado = Column(Boolean, nullable=False, default=False)
     consumido_por_usuario_id = Column(BigInteger, ForeignKey("usuarios.id", ondelete="SET NULL"))
-    consumido_en = Column(TIMESTAMP(timezone=True))
+    consumido_en = Column(DateTime)
     notas = Column(Text)
-    creado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
-    actualizado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    creado_en = Column(DateTime, nullable=False, server_default=func.now())
+    actualizado_en = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
     
     # Relaciones
     carrera = relationship("Carrera", back_populates="catalogo_correos")
@@ -149,7 +148,7 @@ class Usuario(Base):
     __tablename__ = "usuarios"
     
     id = Column(BigInteger, primary_key=True, index=True)
-    correo_institucional = Column(String, nullable=False, unique=True)  # CITEXT
+    correo_institucional = Column(String(255), nullable=False, unique=True, index=True)
     hash_contrasena = Column(Text, nullable=False)
     nombre = Column(String(80), nullable=False)
     apellido_paterno = Column(String(80), nullable=False)
@@ -157,16 +156,17 @@ class Usuario(Base):
     fecha_nacimiento = Column(Date, nullable=False)
     telefono = Column(String(30))
     foto_perfil_url = Column(Text)
+    foto_perfil_data = Column(LargeBinary)  # Almacenar imagen en BD
     biografia = Column(Text)
     carrera_id = Column(BigInteger, ForeignKey("carreras.id", ondelete="SET NULL"))
     cuatrimestre_id = Column(BigInteger, ForeignKey("cuatrimestres.id", ondelete="SET NULL"))
     rol = Column(SQLEnum(RolUsuario), nullable=False, default=RolUsuario.estudiante)
     estado = Column(SQLEnum(EstadoUsuario), nullable=False, default=EstadoUsuario.activo)
     correo_verificado = Column(Boolean, nullable=False, default=False)
-    ultima_conexion_en = Column(TIMESTAMP(timezone=True))
-    creado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
-    actualizado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
-    eliminado_en = Column(TIMESTAMP(timezone=True))
+    ultima_conexion_en = Column(DateTime)
+    creado_en = Column(DateTime, nullable=False, server_default=func.now())
+    actualizado_en = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+    eliminado_en = Column(DateTime)
     
     # Relaciones
     carrera = relationship("Carrera", back_populates="usuarios")
@@ -191,8 +191,8 @@ class DispositivoUsuario(Base):
     plataforma = Column(String(20), nullable=False, default="android")
     token_push = Column(Text)
     activo = Column(Boolean, nullable=False, default=True)
-    creado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
-    ultima_actividad_en = Column(TIMESTAMP(timezone=True))
+    creado_en = Column(DateTime, nullable=False, server_default=func.now())
+    ultima_actividad_en = Column(DateTime)
     
     __table_args__ = (
         UniqueConstraint('usuario_id', 'uuid_dispositivo', name='uq_dispositivo_usuario'),
@@ -210,7 +210,7 @@ class Seguidor(Base):
     
     seguidor_id = Column(BigInteger, ForeignKey("usuarios.id", ondelete="CASCADE"), primary_key=True)
     seguido_id = Column(BigInteger, ForeignKey("usuarios.id", ondelete="CASCADE"), primary_key=True)
-    creado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    creado_en = Column(DateTime, nullable=False, server_default=func.now())
     
     __table_args__ = (
         CheckConstraint('seguidor_id <> seguido_id', name='chk_no_seguirse_a_si_mismo'),
@@ -245,10 +245,10 @@ class Publicacion(Base):
     permite_comentarios = Column(Boolean, nullable=False, default=True)
     es_anonima = Column(Boolean, nullable=False, default=False)
     activa = Column(Boolean, nullable=False, default=True)
-    programada_para = Column(TIMESTAMP(timezone=True))
-    publicada_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
-    actualizada_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
-    eliminada_en = Column(TIMESTAMP(timezone=True))
+    programada_para = Column(DateTime)
+    publicada_en = Column(DateTime, nullable=False, server_default=func.now())
+    actualizada_en = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+    eliminada_en = Column(DateTime)
     
     # Relaciones
     autor = relationship("Usuario", back_populates="publicaciones")
@@ -264,10 +264,11 @@ class MultimediaPublicacion(Base):
     id = Column(BigInteger, primary_key=True, index=True)
     publicacion_id = Column(BigInteger, ForeignKey("publicaciones.id", ondelete="CASCADE"), nullable=False)
     tipo = Column(SQLEnum(TipoMensaje), nullable=False)
-    url_archivo = Column(Text, nullable=False)
+    url_archivo = Column(Text)
+    datos_archivo = Column(LargeBinary)  # Almacenar imagen directamente en BD
     url_miniatura = Column(Text)
     orden = Column(Integer, nullable=False, default=1)
-    creado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    creado_en = Column(DateTime, nullable=False, server_default=func.now())
     
     # Relaciones
     publicacion = relationship("Publicacion", back_populates="multimedia")
@@ -280,8 +281,8 @@ class ComentarioPublicacion(Base):
     usuario_id = Column(BigInteger, ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False)
     comentario_padre_id = Column(BigInteger, ForeignKey("comentarios_publicacion.id", ondelete="CASCADE"))
     contenido = Column(Text, nullable=False)
-    activo = Column(Boolean, nullable=False, default=True)
-    creado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    activo = Column(BooDateTime, nullable=False, server_default=func.now())
+    actualizado_en = Column(DateTimelable=False, server_default=func.now())
     actualizado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
     
     # Relaciones
@@ -304,7 +305,7 @@ class ReaccionPublicacion(Base):
     
     publicacion_id = Column(BigInteger, ForeignKey("publicaciones.id", ondelete="CASCADE"), primary_key=True)
     usuario_id = Column(BigInteger, ForeignKey("usuarios.id", ondelete="CASCADE"), primary_key=True)
-    reaccion_id = Column(BigInteger, ForeignKey("catalogo_reacciones.id", ondelete="RESTRICT"), nullable=False)
+    reaccion_id = ColumDateTime("catalogo_reacciones.id", ondelete="RESTRICT"), nullable=False)
     creado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
     
     # Relaciones
@@ -326,8 +327,8 @@ class Grupo(Base):
     privacidad = Column(SQLEnum(PrivacidadGrupo), nullable=False, default=PrivacidadGrupo.publico)
     usuario_dueno_id = Column(BigInteger, ForeignKey("usuarios.id", ondelete="RESTRICT"), nullable=False)
     foto_grupo_url = Column(Text)
-    creado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
-    actualizado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    creado_en = Column(DateTime, nullable=False, server_default=func.now())
+    actualizado_en = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
     
     __table_args__ = (
         UniqueConstraint('nombre', 'carrera_id', name='uq_grupo_nombre_carrera'),
@@ -346,8 +347,8 @@ class MiembroGrupo(Base):
     usuario_id = Column(BigInteger, ForeignKey("usuarios.id", ondelete="CASCADE"), primary_key=True)
     rol_miembro = Column(SQLEnum(RolMiembroGrupo), nullable=False, default=RolMiembroGrupo.miembro)
     estado_membresia = Column(SQLEnum(EstadoMembresia), nullable=False, default=EstadoMembresia.activo)
-    unido_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
-    salio_en = Column(TIMESTAMP(timezone=True))
+    unido_en = Column(DateTime, nullable=False, server_default=func.now())
+    salio_en = Column(DateTime)
     
     # Relaciones
     grupo = relationship("Grupo", back_populates="miembros")
@@ -361,8 +362,8 @@ class PublicacionGrupo(Base):
     autor_id = Column(BigInteger, ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False)
     titulo = Column(String(180), nullable=False)
     contenido = Column(Text, nullable=False)
-    creado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
-    actualizado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    creado_en = Column(DateTime, nullable=False, server_default=func.now())
+    actualizado_en = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
     
     # Relaciones
     grupo = relationship("Grupo", back_populates="publicaciones")
@@ -376,13 +377,13 @@ class SalaChat(Base):
     __tablename__ = "salas_chat"
     
     id = Column(BigInteger, primary_key=True, index=True)
-    sala_uuid = Column(UUID(as_uuid=True), nullable=False, unique=True, default=uuid_pkg.uuid4)
+    sala_uuid = Column(String(36), nullable=False, unique=True, default=lambda: str(uuid_pkg.uuid4()))
     tipo_sala = Column(SQLEnum(TipoSalaChat), nullable=False)
     usuario_a_id = Column(BigInteger, ForeignKey("usuarios.id", ondelete="CASCADE"))
     usuario_b_id = Column(BigInteger, ForeignKey("usuarios.id", ondelete="CASCADE"))
     grupo_id = Column(BigInteger, ForeignKey("grupos.id", ondelete="CASCADE"))
-    creado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
-    actualizado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    creado_en = Column(DateTime, nullable=False, server_default=func.now())
+    actualizado_en = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
     
     # Relaciones
     mensajes = relationship("Mensaje", back_populates="sala_chat", cascade="all, delete-orphan")
@@ -391,16 +392,17 @@ class Mensaje(Base):
     __tablename__ = "mensajes"
     
     id = Column(BigInteger, primary_key=True, index=True)
-    mensaje_uuid = Column(UUID(as_uuid=True), nullable=False, unique=True, default=uuid_pkg.uuid4)
+    mensaje_uuid = Column(String(36), nullable=False, unique=True, default=lambda: str(uuid_pkg.uuid4()))
     sala_chat_id = Column(BigInteger, ForeignKey("salas_chat.id", ondelete="CASCADE"), nullable=False)
     remitente_id = Column(BigInteger, ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False)
     tipo_mensaje = Column(SQLEnum(TipoMensaje), nullable=False, default=TipoMensaje.texto)
     contenido = Column(Text)
     url_archivo = Column(Text)
-    metadatos = Column(JSONB, nullable=False, default={})
-    enviado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
-    editado_en = Column(TIMESTAMP(timezone=True))
-    eliminado_en = Column(TIMESTAMP(timezone=True))
+    datos_archivo = Column(LargeBinary)  # Almacenar archivos en BD
+    metadatos = Column(JSON, nullable=False, default=dict)
+    enviado_en = Column(DateTime, nullable=False, server_default=func.now())
+    editado_en = Column(DateTime)
+    eliminado_en = Column(DateTime)
     
     # Relaciones
     sala_chat = relationship("SalaChat", back_populates="mensajes")
@@ -411,9 +413,9 @@ class DestinatarioMensaje(Base):
     __tablename__ = "destinatarios_mensaje"
     
     mensaje_id = Column(BigInteger, ForeignKey("mensajes.id", ondelete="CASCADE"), primary_key=True)
-    destinatario_id = Column(BigInteger, ForeignKey("usuarios.id", ondelete="CASCADE"), primary_key=True)
-    entregado_en = Column(TIMESTAMP(timezone=True))
-    leido_en = Column(TIMESTAMP(timezone=True))
+    destinatario_id = ColuDateTime)
+    leido_en = Column(DateTime)
+    creado_en = Column(DateTime
     creado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
     
     # Relaciones
@@ -431,11 +433,10 @@ class Notificacion(Base):
     usuario_id = Column(BigInteger, ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False)
     tipo = Column(String(50), nullable=False)
     titulo = Column(String(120), nullable=False)
-    cuerpo = Column(Text)
-    datos = Column(JSONB, nullable=False, default={})
+    cuerpo = Column(Tex, nullable=False, default=dict)
     leida = Column(Boolean, nullable=False, default=False)
-    creada_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
-    leida_en = Column(TIMESTAMP(timezone=True))
+    creada_en = Column(DateTime, nullable=False, server_default=func.now())
+    leida_en = Column(DateTime)
     
     # Relaciones
     usuario = relationship("Usuario", back_populates="notificaciones")
@@ -448,5 +449,6 @@ class Auditoria(Base):
     accion = Column(String(100), nullable=False)
     entidad = Column(String(100), nullable=False)
     entidad_id = Column(String(100))
-    detalle = Column(JSONB, nullable=False, default={})
+    detalle = Column(JSON, nullable=False, default=dict)
+    creada_en = Column(DateTimeault={})
     creada_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())

@@ -1,0 +1,11 @@
+# Servidor WebSocket para UPRed - Red Social Universitaria
+# Base de datos: MySQL
+
+flask==3.0.0
+flask-socketio==5.3.4
+flask-cors==4.0.0
+python-socketio==5.10.0
+eventlet==0.33.3
+python-dotenv==1.0.0
+pymysql==1.1.0
+cryptography==41.0.7
