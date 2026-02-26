@@ -359,19 +359,6 @@ class GrupoResponse(GrupoBase):
     
     model_config = ConfigDict(from_attributes=True)
 
-class GrupoDetailResponse(GrupoBase):
-    """Schema que incluye los miembros del grupo"""
-    id: int
-    usuario_dueno_id: int
-    creado_en: datetime
-    actualizado_en: datetime
-    dueno: Optional[UsuarioResponse] = None
-    carrera: Optional[CarreraResponse] = None
-    total_miembros: int = 0
-    miembros: List['MiembroGrupoDetailResponse'] = []
-    
-    model_config = ConfigDict(from_attributes=True)
-
 # =====================================================================
 # SCHEMA DE MIEMBROS DE GRUPO
 # =====================================================================
@@ -390,6 +377,19 @@ class MiembroGrupoDetailResponse(BaseModel):
     foto_perfil_url: Optional[str] = None
     rol_miembro: RolMiembroGrupo
     estado_membresia: EstadoMembresia
+    
+    model_config = ConfigDict(from_attributes=True)
+
+class GrupoDetailResponse(GrupoBase):
+    """Schema que incluye los miembros del grupo"""
+    id: int
+    usuario_dueno_id: int
+    creado_en: datetime
+    actualizado_en: datetime
+    dueno: Optional[UsuarioResponse] = None
+    carrera: Optional[CarreraResponse] = None
+    total_miembros: int = 0
+    miembros: List[MiembroGrupoDetailResponse] = []
     
     model_config = ConfigDict(from_attributes=True)
 

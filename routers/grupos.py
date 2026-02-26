@@ -117,68 +117,47 @@ def obtener_grupo(grupo_id: int, db: Session = Depends(get_db)):
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Grupo no encontrado"
         )
-    
-    # Obtener miembros activos del grupo
+
     miembros = db.query(MiembroGrupo).filter(
         MiembroGrupo.grupo_id == grupo_id,
         MiembroGrupo.estado_membresia == EstadoMembresia.activo
     ).all()
-    
-    # Construir respuesta con miembros
-    grupo_dict = GrupoDetailResponse.model_validate(grupo)
-    grupo_dict.total_miembros = len(miembros)
-    grupo_dict.miembros = []
-    
+
+    miembros_detail = []
     for miembro in miembros:
         usuario = miembro.usuario
-        miembro_detail = MiembroGrupoDetailResponse(
-            usuario_id=usuario.id,
-            nombre=usuario.nombre,
-            apellido_paterno=usuario.apellido_paterno,
-            apellido_materno=usuario.apellido_materno,
-            foto_perfil_url=usuario.foto_perfil_url,
-            rol_miembro=miembro.rol_miembro,
-            estado_membresia=miembro.estado_membresia
+        miembros_detail.append(
+            MiembroGrupoDetailResponse(
+                usuario_id=usuario.id,
+                nombre=usuario.nombre,
+                apellido_paterno=usuario.apellido_paterno,
+                apellido_materno=usuario.apellido_materno,
+                foto_perfil_url=usuario.foto_perfil_url,
+                rol_miembro=miembro.rol_miembro,
+                estado_membresia=miembro.estado_membresia
+            )
         )
-        grupo_dict.miembros.append(miembro_detail)
-    
-    return grupo_dict
+
+    return GrupoDetailResponse(
+        id=grupo.id,
+        nombre=grupo.nombre,
+        descripcion=grupo.descripcion,
+        carrera_id=grupo.carrera_id,
+        privacidad=grupo.privacidad,
+        foto_grupo_url=grupo.foto_grupo_url,
+        usuario_dueno_id=grupo.usuario_dueno_id,
+        creado_en=grupo.creado_en,
+        actualizado_en=grupo.actualizado_en,
+        dueno=grupo.dueno,
+        carrera=grupo.carrera,
+        total_miembros=len(miembros_detail),
+        miembros=miembros_detail
+    )
 
 @router.get("/{grupo_id}/detalle", response_model=GrupoDetailResponse)
 def obtener_grupo_detalle(grupo_id: int, db: Session = Depends(get_db)):
-    """Obtiene los detalles completos del grupo incluyendo miembros (alias)"""
-    grupo = db.query(Grupo).filter(Grupo.id == grupo_id).first()
-    if not grupo:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Grupo no encontrado"
-        )
-    
-    # Obtener miembros activos del grupo
-    miembros = db.query(MiembroGrupo).filter(
-        MiembroGrupo.grupo_id == grupo_id,
-        MiembroGrupo.estado_membresia == EstadoMembresia.activo
-    ).all()
-    
-    # Construir respuesta con miembros
-    grupo_dict = GrupoDetailResponse.model_validate(grupo)
-    grupo_dict.total_miembros = len(miembros)
-    grupo_dict.miembros = []
-    
-    for miembro in miembros:
-        usuario = miembro.usuario
-        miembro_detail = MiembroGrupoDetailResponse(
-            usuario_id=usuario.id,
-            nombre=usuario.nombre,
-            apellido_paterno=usuario.apellido_paterno,
-            apellido_materno=usuario.apellido_materno,
-            foto_perfil_url=usuario.foto_perfil_url,
-            rol_miembro=miembro.rol_miembro,
-            estado_membresia=miembro.estado_membresia
-        )
-        grupo_dict.miembros.append(miembro_detail)
-    
-    return grupo_dict
+    """Alias para obtener detalles completos del grupo"""
+    return obtener_grupo(grupo_id, db)
 
 @router.post("/", response_model=GrupoResponse, status_code=status.HTTP_201_CREATED)
 def crear_grupo(
