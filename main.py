@@ -14,7 +14,8 @@ app = FastAPI(
     description="API REST completa para red social universitaria con estructura académica, publicaciones, grupos, mensajería y notificaciones",
     version="2.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    redirect_slashes=False
 )
 
 # CORS configurado para permitir TODAS las conexiones
