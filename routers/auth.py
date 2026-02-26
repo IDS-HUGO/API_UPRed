@@ -32,7 +32,7 @@ def register(usuario_data: UsuarioCreate, db: Session = Depends(get_db)):
         )
     
     # Validar formato institucional: 6 digitos + @ + codigo carrera + .upchiapas.edu.mx
-    match = re.match(r"^(\d{6})@([a-z0-9]{2,8})\.upchiapas\.edu\.mx$", email)
+    match = re.match(r"^(\d{6})@([a-z0-9][a-z0-9.-]{1,20})\.upchiapas\.edu\.mx$", email)
     if not match:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -45,10 +45,16 @@ def register(usuario_data: UsuarioCreate, db: Session = Depends(get_db)):
     ).first()
 
     if catalogo and catalogo.usado:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="El correo ya fue utilizado"
-        )
+        # Si no hay usuario registrado con ese correo, liberar el catalogo
+        if not existing_user:
+            catalogo.usado = False
+            catalogo.consumido_por_usuario_id = None
+            catalogo.consumido_en = None
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="El correo ya fue utilizado"
+            )
 
     if catalogo and catalogo.habilitado is False:
         raise HTTPException(
