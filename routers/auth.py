@@ -2,8 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta, datetime
+import re
 from database import get_db
-from models import Usuario, CatalogoCorreo, RolUsuario, EstadoUsuario, Auditoria
+from models import Usuario, CatalogoCorreo, RolUsuario, EstadoUsuario, Auditoria, Carrera
 from schemas import (
     UsuarioCreate, UsuarioResponse, Token, UsuarioLogin, Message
 )
@@ -17,11 +18,12 @@ router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
 
 @router.post("/register", response_model=UsuarioResponse, status_code=status.HTTP_201_CREATED)
 def register(usuario_data: UsuarioCreate, db: Session = Depends(get_db)):
-    """Registra un nuevo usuario en el sistema (solo correos del catálogo)"""
+    """Registra un nuevo usuario en el sistema (correo institucional valido)"""
     
     # Verificar si el correo ya está registrado
+    email = usuario_data.correo_institucional.strip().lower()
     existing_user = db.query(Usuario).filter(
-        Usuario.correo_institucional == usuario_data.correo_institucional.lower()
+        Usuario.correo_institucional == email
     ).first()
     if existing_user:
         raise HTTPException(
@@ -29,18 +31,46 @@ def register(usuario_data: UsuarioCreate, db: Session = Depends(get_db)):
             detail="El correo electrónico ya está registrado"
         )
     
-    # Verificar que el correo esté en el catálogo
-    catalogo = db.query(CatalogoCorreo).filter(
-        CatalogoCorreo.correo_institucional == usuario_data.correo_institucional.lower(),
-        CatalogoCorreo.habilitado == True,
-        CatalogoCorreo.usado == False
-    ).first()
-    
-    if not catalogo:
+    # Validar formato institucional: 6 digitos + @ + codigo carrera + .upchiapas.edu.mx
+    match = re.match(r"^(\d{6})@([a-z0-9]{2,8})\.upchiapas\.edu\.mx$", email)
+    if not match:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="El correo no está autorizado o ya fue utilizado"
+            detail="El correo no esta autorizado. Formato: 6 digitos + @ + codigo carrera + .upchiapas.edu.mx"
         )
+
+    # Verificar o crear entrada en catalogo para controlar uso
+    catalogo = db.query(CatalogoCorreo).filter(
+        CatalogoCorreo.correo_institucional == email
+    ).first()
+
+    if catalogo and catalogo.usado:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El correo ya fue utilizado"
+        )
+
+    if catalogo and catalogo.habilitado is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El correo no esta habilitado"
+        )
+
+    if not catalogo:
+        carrera_id = None
+        carrera_code = match.group(2).upper()
+        carrera = db.query(Carrera).filter(Carrera.codigo == carrera_code).first()
+        if carrera:
+            carrera_id = carrera.id
+
+        catalogo = CatalogoCorreo(
+            correo_institucional=email,
+            carrera_id=carrera_id,
+            cuatrimestre_id=usuario_data.cuatrimestre_id,
+            habilitado=True,
+            usado=False
+        )
+        db.add(catalogo)
     
     # Usar datos del catálogo si no se proporcionaron
     carrera_id = usuario_data.carrera_id or catalogo.carrera_id
@@ -49,7 +79,7 @@ def register(usuario_data: UsuarioCreate, db: Session = Depends(get_db)):
     # Crear nuevo usuario
     hashed_password = get_password_hash(usuario_data.password)
     new_user = Usuario(
-        correo_institucional=usuario_data.correo_institucional.lower(),
+        correo_institucional=email,
         hash_contrasena=hashed_password,
         nombre=usuario_data.nombre,
         apellido_paterno=usuario_data.apellido_paterno,
