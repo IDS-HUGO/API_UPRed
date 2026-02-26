@@ -305,7 +305,7 @@ class ReaccionPublicacion(Base):
     
     publicacion_id = Column(BigInteger, ForeignKey("publicaciones.id", ondelete="CASCADE"), primary_key=True)
     usuario_id = Column(BigInteger, ForeignKey("usuarios.id", ondelete="CASCADE"), primary_key=True)
-    reaccion_id = ColumDateTime("catalogo_reacciones.id", ondelete="RESTRICT"), nullable=False)
+    reaccion_id = Column(BigInteger, ForeignKey("catalogo_reacciones.id", ondelete="RESTRICT"), nullable=False)
     creado_en = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
     
     # Relaciones
