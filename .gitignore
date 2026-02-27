@@ -31,6 +31,25 @@ wheels/
 .idea/
 *.swp
 *.swo
+
+# Logs
+*.log
+uvicorn.log
+api.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Database backups
+*.sql.bak
+
+# Node modules (si hay frontend)
+node_modules/
+npm-debug.log
+.idea/
+*.swp
+*.swo
 *~
 
 # OS
