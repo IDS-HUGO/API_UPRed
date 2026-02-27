@@ -129,7 +129,7 @@ def listar_tipos_publicacion(db: Session = Depends(get_db)):
 # ENDPOINTS DE PUBLICACIONES
 # =====================================================================
 
-@router.get("/", response_model=List[PublicacionResponse])
+@router.get("", response_model=List[PublicacionResponse])
 def listar_publicaciones(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
@@ -446,7 +446,7 @@ def obtener_publicacion(publicacion_id: int, db: Session = Depends(get_db)):
     
     return pub_dict
 
-@router.post("/", response_model=PublicacionResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=PublicacionResponse, status_code=status.HTTP_201_CREATED)
 async def crear_publicacion(
     request: Request,
     db: Session = Depends(get_db),
