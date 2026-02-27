@@ -21,6 +21,51 @@ from config import settings
 
 router = APIRouter(prefix="/api/publicaciones", tags=["Publicaciones"])
 
+# =====================================================================
+# ENDPOINT SIMPLIFICADO PARA MÓVIL (SIN AUTENTICACIÓN PARA DEBUG)
+# =====================================================================
+
+@router.get("/test")
+def test_endpoint():
+    """Endpoint de prueba para verificar que el router funciona"""
+    return {"status": "ok", "message": "Publicaciones router está funcionando"}
+
+def _build_publicacion_response(pub: Publicacion, db: Session) -> dict:
+    """Helper function para construir respuesta de publicación con formato correcto"""
+    # Crear autor simplificado
+    autor_data = None
+    if pub.autor:
+        autor_data = {
+            "nombre": pub.autor.nombre,
+            "apellido_paterno": pub.autor.apellido_paterno,
+            "apellido_materno": pub.autor.apellido_materno,
+            "foto_perfil_url": pub.autor.foto_perfil_url
+        }
+    
+    # Construir respuesta
+    return {
+        "id": pub.id,
+        "autor_id": pub.autor_id,
+        "titulo": pub.titulo,
+        "contenido": pub.contenido,
+        "audiencia": pub.audiencia,
+        "carrera_objetivo_id": pub.carrera_objetivo_id,
+        "cuatrimestre_objetivo_id": pub.cuatrimestre_objetivo_id,
+        "tipo_publicacion_id": pub.tipo_publicacion_id,
+        "permite_comentarios": pub.permite_comentarios,
+        "es_anonima": pub.es_anonima,
+        "activa": pub.activa,
+        "publicada_en": pub.publicada_en,
+        "actualizada_en": pub.actualizada_en,
+        "autor": autor_data,
+        "total_comentarios": db.query(func.count(ComentarioPublicacion.id)).filter(
+            ComentarioPublicacion.publicacion_id == pub.id,
+            ComentarioPublicacion.activo == True
+        ).scalar() or 0,
+        "total_reacciones": db.query(func.count(ReaccionPublicacion.publicacion_id)).filter(
+            ReaccionPublicacion.publicacion_id == pub.id
+        ).scalar() or 0
+    }
 
 def _parse_int(value: Optional[str]) -> Optional[int]:
     if value is None:
@@ -86,69 +131,34 @@ def listar_tipos_publicacion(db: Session = Depends(get_db)):
 
 @router.get("/", response_model=List[PublicacionResponse])
 def listar_publicaciones(
-    autor_id: Optional[int] = None,
-    carrera_id: Optional[int] = None,
-    tipo_publicacion_id: Optional[int] = None,
-    audiencia: Optional[AudienciaPublicacion] = None,
-    activa: bool = True,
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """Lista publicaciones con filtros"""
-    query = db.query(Publicacion)
+    """Lista publicaciones activas ordenadas por fecha (endpoint principal para móvil)"""
+    # Query simplificado: solo publicaciones activas
+    query = db.query(Publicacion).filter(Publicacion.activa == True)
     
-    if autor_id:
-        query = query.filter(Publicacion.autor_id == autor_id)
-    if tipo_publicacion_id:
-        query = query.filter(Publicacion.tipo_publicacion_id == tipo_publicacion_id)
-    if audiencia:
-        query = query.filter(Publicacion.audiencia == audiencia)
-    if activa is not None:
-        query = query.filter(Publicacion.activa == activa)
-    
-    # Filtrar según la carrera del usuario
-    if carrera_id:
+    # Filtrar según la carrera del usuario (mostrar generales y de su carrera)
+    if current_user.carrera_id:
         query = query.filter(
             or_(
                 Publicacion.audiencia == AudienciaPublicacion.general,
                 and_(
                     Publicacion.audiencia == AudienciaPublicacion.carrera,
-                    Publicacion.carrera_objetivo_id == carrera_id
+                    Publicacion.carrera_objetivo_id == current_user.carrera_id
                 )
             )
         )
     else:
-        # Si no se especifica carrera, mostrar publicaciones generales y de la carrera del usuario
-        if current_user.carrera_id:
-            query = query.filter(
-                or_(
-                    Publicacion.audiencia == AudienciaPublicacion.general,
-                    and_(
-                        Publicacion.audiencia == AudienciaPublicacion.carrera,
-                        Publicacion.carrera_objetivo_id == current_user.carrera_id
-                    )
-                )
-            )
-        else:
-            query = query.filter(Publicacion.audiencia == AudienciaPublicacion.general)
+        # Si no tiene carrera, solo mostrar generales
+        query = query.filter(Publicacion.audiencia == AudienciaPublicacion.general)
     
     publicaciones = query.order_by(Publicacion.publicada_en.desc()).offset(skip).limit(limit).all()
     
-    # Agregar contadores
-    result = []
-    for pub in publicaciones:
-        pub_dict = PublicacionResponse.model_validate(pub)
-        pub_dict.total_comentarios = db.query(func.count(ComentarioPublicacion.id)).filter(
-            ComentarioPublicacion.publicacion_id == pub.id,
-            ComentarioPublicacion.activo == True
-        ).scalar() or 0
-        pub_dict.total_reacciones = db.query(func.count(ReaccionPublicacion.publicacion_id)).filter(
-            ReaccionPublicacion.publicacion_id == pub.id
-        ).scalar() or 0
-        result.append(pub_dict)
-    
+    # Construir respuesta usando la función helper
+    result = [_build_publicacion_response(pub, db) for pub in publicaciones]
     return result
 
 @router.get("/feed", response_model=List[PublicacionResponse])
@@ -442,19 +452,32 @@ async def crear_publicacion(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """Crea una nueva publicación"""
+    """Crea una nueva publicación (compatible con formato simplificado de móvil)"""
     try:
         payload, files = await _extract_publicacion_data(request)
+        
+        # Asegurarse de que los campos opcionales tengan valores por defecto
+        if "tipo_publicacion_id" not in payload or payload["tipo_publicacion_id"] is None:
+            payload["tipo_publicacion_id"] = None
+        if "permite_comentarios" not in payload:
+            payload["permite_comentarios"] = True
+        if "es_anonima" not in payload:
+            payload["es_anonima"] = False
+        if "carrera_objetivo_id" not in payload:
+            payload["carrera_objetivo_id"] = None
+        if "cuatrimestre_objetivo_id" not in payload:
+            payload["cuatrimestre_objetivo_id"] = None
+            
         publicacion_data = PublicacionCreate.model_validate(payload)
     except ValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=exc.errors()
         )
-    except Exception:
+    except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cuerpo de solicitud invalido"
+            detail=f"Cuerpo de solicitud inválido: {str(e)}"
         )
 
     # Validar audiencia
@@ -530,7 +553,8 @@ async def crear_publicacion(
     db.commit()
     db.refresh(nueva_publicacion)
 
-    return nueva_publicacion
+    # Devolver respuesta con formato correcto para móvil
+    return _build_publicacion_response(nueva_publicacion, db)
 
 @router.put("/{publicacion_id}", response_model=PublicacionResponse)
 def actualizar_publicacion(
@@ -560,7 +584,9 @@ def actualizar_publicacion(
     
     db.commit()
     db.refresh(publicacion)
-    return publicacion
+    
+    # Devolver respuesta con formato correcto para móvil
+    return _build_publicacion_response(publicacion, db)
 
 @router.delete("/{publicacion_id}", response_model=Message)
 def eliminar_publicacion(

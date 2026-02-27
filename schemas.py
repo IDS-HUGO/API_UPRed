@@ -223,6 +223,15 @@ class TipoPublicacionResponse(TipoPublicacionBase):
 # SCHEMA DE PUBLICACIONES
 # =====================================================================
 
+class AutorSimplificadoResponse(BaseModel):
+    """Schema simplificado del autor para publicaciones (compatible con móvil)"""
+    nombre: str
+    apellido_paterno: str
+    apellido_materno: Optional[str] = None
+    foto_perfil_url: Optional[str] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
 class PublicacionBase(BaseModel):
     titulo: str = Field(..., min_length=1, max_length=180)
     contenido: str = Field(..., min_length=1)
@@ -264,7 +273,7 @@ class PublicacionResponse(PublicacionBase):
     activa: bool
     publicada_en: datetime
     actualizada_en: datetime
-    autor: Optional[UsuarioResponse] = None
+    autor: Optional[AutorSimplificadoResponse] = None
     tipo_publicacion: Optional[TipoPublicacionResponse] = None
     carrera_objetivo: Optional[CarreraResponse] = None
     multimedia: Optional[List[MultimediaPublicacionResponse]] = None
