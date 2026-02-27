@@ -1,147 +1,123 @@
-# =====================================================================
-# Script PowerShell para Deploy de API a EC2
-# =====================================================================
+# 🚀 DEPLOY FINAL A EC2 - UPRED API
+# Script para subir cambios a servidor EC2 en una sola ejecución
 
-# Configuración
-$ErrorActionPreference = "Stop"
-
-$Config = @{
-    KeyFile = "C:\path\to\your-key.pem"  # EDITAR: Ruta a tu archivo .pem
-    User = "ubuntu"                       # EDITAR: Usuario del servidor
-    Host = "apiupred.ferluna.online"     # EDITAR: Dominio o IP de EC2
-    RemotePath = "/home/ubuntu/API_UPRed" # EDITAR: Ruta remota de la API
-}
-
-$FilesToUpload = @(
-    "routers/publicaciones.py",
-    "schemas.py"
+param(
+    [string]$KeyFile = "C:\ruta\a\tu-clave.pem",
+    [string]$EC2User = "ubuntu",
+    [string]$EC2Host = "apiupred.ferluna.online",
+    [string]$RemotePath = "/home/ubuntu/API_UPRed"
 )
 
 # =====================================================================
-# Funciones Helper
+# CONFIGURACIÓN - EDITAR AQUÍ
 # =====================================================================
 
-function Write-Header {
-    param([string]$Text)
-    Write-Host "`n========================================" -ForegroundColor Cyan
-    Write-Host "  $Text" -ForegroundColor Cyan
-    Write-Host "========================================`n" -ForegroundColor Cyan
-}
-
-function Write-ErrorMsg {
-    param([string]$Text)
-    Write-Host "`n❌ ERROR: $Text`n" -ForegroundColor Red
-}
-
-function Write-Success {
-    param([string]$Text)
-    Write-Host "`n✅ $Text`n" -ForegroundColor Green
-}
-
-function Write-Info {
-    param([string]$Text)
-    Write-Host "ℹ️  $Text" -ForegroundColor Yellow
-}
+# Si los parámetros no se pasan, puedes editarlos aquí manualmente:
+# $KeyFile = "C:\Users\tu-usuario\.ssh\upred-key.pem"
+# $EC2User = "ubuntu"
+# $EC2Host = "apiupred.ferluna.online"
+# $RemotePath = "/home/ubuntu/API_UPRed"
 
 # =====================================================================
-# Script Principal
+# FUNCIONES
 # =====================================================================
 
-Write-Header "🚀 DEPLOY API UPRED A EC2"
-
-# Verificar configuración
-Write-Header "Verificando Configuración"
-
-if (-not (Test-Path $Config.KeyFile)) {
-    Write-ErrorMsg "No se encontró el archivo de clave SSH: $($Config.KeyFile)"
-    Write-Info "Por favor, edita este script y configura la ruta correcta en `$Config.KeyFile"
-    exit 1
+function Write-Status {
+    param([string]$Message, [string]$Status = "INFO")
+    $colors = @{
+        "INFO" = "Cyan"
+        "OK" = "Green"
+        "ERROR" = "Red"
+        "WARN" = "Yellow"
+    }
+    $color = $colors[$Status] ?? "White"
+    Write-Host "[$Status] $Message" -ForegroundColor $color
 }
 
-Write-Info "Key File: $($Config.KeyFile)"
-Write-Info "Usuario: $($Config.User)"
-Write-Info "Host: $($Config.Host)"
-Write-Info "Path Remoto: $($Config.RemotePath)"
-
-Write-Info "`nArchivos a subir:"
-foreach ($file in $FilesToUpload) {
-    $localPath = Join-Path $PSScriptRoot $file
-    if (-not (Test-Path $localPath)) {
-        Write-ErrorMsg "No se encontró el archivo: $localPath"
+function Verify-Config {
+    Write-Status "Verificando configuración..." "INFO"
+    
+    if (-not (Test-Path $KeyFile)) {
+        Write-Status "❌ Clave SSH no encontrada: $KeyFile" "ERROR"
+        Write-Status "Edita este script y actualiza KeyFile" "WARN"
         exit 1
     }
-    Write-Info "  ✓ $file"
+    
+    Write-Status "✓ Clave SSH: $KeyFile" "OK"
+    Write-Status "✓ Usuario: $EC2User" "OK"
+    Write-Status "✓ Host: $EC2Host" "OK"
+    Write-Status "✓ Path remoto: $RemotePath" "OK"
 }
 
-# Confirmar
-Write-Host "`n⚠️  ¿Deseas continuar con el deploy? (s/n): " -NoNewline -ForegroundColor Yellow
-$respuesta = Read-Host
-
-if ($respuesta -notin @("s", "si", "S", "SI", "y", "Y", "yes", "YES")) {
-    Write-Info "Deploy cancelado por el usuario"
-    exit 0
-}
-
-# Subir archivos
-Write-Header "Subiendo Archivos"
-
-foreach ($file in $FilesToUpload) {
-    $localPath = Join-Path $PSScriptRoot $file
-    $remotePath = "$($Config.RemotePath)/$($file.Replace('\', '/'))"
+function Upload-Files {
+    Write-Status "`nSubiendo archivos..." "INFO"
     
-    Write-Info "Subiendo: $file"
+    $files = @(
+        "routers\publicaciones.py",
+        "schemas.py",
+        "main.py"
+    )
     
-    # Comando SCP
-    $scpCmd = "scp -i `"$($Config.KeyFile)`" `"$localPath`" $($Config.User)@$($Config.Host):$remotePath"
-    
-    try {
-        Invoke-Expression $scpCmd
-        if ($LASTEXITCODE -eq 0) {
-            Write-Success "✓ $file subido correctamente"
-        } else {
-            Write-ErrorMsg "Falló la subida de $file"
+    foreach ($file in $files) {
+        if (-not (Test-Path $file)) {
+            Write-Status "❌ Archivo no encontrado: $file" "ERROR"
             exit 1
         }
-    } catch {
-        Write-ErrorMsg "Error al subir $file : $_"
-        exit 1
+        
+        $remoteFile = "$RemotePath/$($file.Replace('\', '/'))"
+        Write-Status "Subiendo: $file" "INFO"
+        
+        & scp -i $KeyFile $file "${EC2User}@${EC2Host}:${remoteFile}" 2>&1 | Out-Null
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-Status "❌ Falló subida de $file" "ERROR"
+            exit 1
+        }
+        
+        Write-Status "✓ $file subido" "OK"
     }
 }
 
-# Reiniciar servicio
-Write-Header "Reiniciando Servicio"
-
-$sshCmd = "ssh -i `"$($Config.KeyFile)`" $($Config.User)@$($Config.Host) `"cd $($Config.RemotePath) && sudo systemctl restart uvicorn`""
-
-Write-Info "Ejecutando: sudo systemctl restart uvicorn"
-
-try {
-    Invoke-Expression $sshCmd
-    if ($LASTEXITCODE -eq 0) {
-        Write-Success "Servicio reiniciado correctamente"
-    } else {
-        Write-ErrorMsg "No se pudo reiniciar con systemctl. Intenta manualmente."
-        exit 1
+function Restart-Service {
+    Write-Status "`nReiniciando servicio..." "INFO"
+    
+    & ssh -i $KeyFile "${EC2User}@${EC2Host}" "cd $RemotePath && sudo systemctl restart uvicorn" 2>&1 | Out-Null
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-Status "⚠️  Intenta reiniciar manualmente en el servidor" "WARN"
+        return $false
     }
-} catch {
-    Write-ErrorMsg "Error al reiniciar servicio: $_"
-    exit 1
+    
+    Write-Status "✓ Servicio reiniciado" "OK"
+    return $true
 }
 
-# Verificación
-Write-Header "Verificando Deploy"
+function Verify-Deploy {
+    Write-Status "`nVerificando deploy..." "INFO"
+    
+    Write-Host "`n📝 Ejecuta esto en tu servidor para verificar:"
+    Write-Host "curl https://apiupred.ferluna.online/api/publicaciones/test"
+    Write-Host "`nDebería devolver:"
+    Write-Host '{​"status":"ok","message":"Publicaciones router está funcionando"}' -ForegroundColor Green
+}
 
-$testUrl = "https://$($Config.Host)/api/publicaciones/test"
+# =====================================================================
+# MAIN
+# =====================================================================
 
-Write-Info "Verificando endpoint: $testUrl"
-Write-Info "`nPuedes verificar manualmente con:"
-Write-Host "`n  curl $testUrl`n"
-Write-Info "Debería devolver:"
-Write-Host '  {"status":"ok","message":"Publicaciones router está funcionando"}'
+Clear-Host
+Write-Host "================================================" -ForegroundColor Cyan
+Write-Host "  🚀 DEPLOY FINAL - UPRED API A EC2" -ForegroundColor Cyan
+Write-Host "================================================" -ForegroundColor Cyan
 
-Write-Header "✨ DEPLOY COMPLETADO EXITOSAMENTE"
-Write-Success "Los archivos se han subido y el servidor se ha reiniciado"
-Write-Info "Ahora prueba tu app Android - ya no debería dar error 404"
+Verify-Config
+Upload-Files
+Restart-Service
+Verify-Deploy
 
-Write-Host "`nPresiona cualquier tecla para continuar..."
-$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+Write-Host "`n================================================" -ForegroundColor Green
+Write-Host "  ✅ DEPLOY COMPLETADO" -ForegroundColor Green
+Write-Host "================================================" -ForegroundColor Green
+
+Write-Host "`n✨ Tu API está lista. Verifica en:"
+Write-Host "   https://apiupred.ferluna.online/api/publicaciones/test" -ForegroundColor Cyan
