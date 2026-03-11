@@ -348,9 +348,11 @@ def actualizar_perfil(
     
     # Registrar auditoría
     auditoria = Auditoria(
-        tipo_accion="actualizar_perfil",
-        usuario_id=current_user.id,
-        detalles={"usuario_id": current_user.id}
+        accion="actualizar_perfil",
+        entidad="usuarios",
+        entidad_id=str(current_user.id),
+        actor_usuario_id=current_user.id,
+        detalle={"usuario_id": current_user.id}
     )
     db.add(auditoria)
     db.commit()
