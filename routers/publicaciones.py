@@ -5,7 +5,7 @@ from sqlalchemy import or_, func, and_
 from typing import List, Optional
 from pydantic import ValidationError
 from database import get_db
-import cloudinary_service
+from services.cloudinary_service import cloudinary_service
 from models import (
     Publicacion, TipoPublicacion, ComentarioPublicacion, ReaccionPublicacion,
     CatalogoReaccion, MultimediaPublicacion, Usuario, RolUsuario,

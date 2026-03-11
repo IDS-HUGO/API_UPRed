@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from database import engine, Base
@@ -8,35 +8,55 @@ from config import settings
 # Comentar esta línea para que no cree tablas automáticamente (usaremos el script SQL)
 # Base.metadata.create_all(bind=engine)
 
-# Inicializar FastAPI
-app = FastAPI(
-    title="API UPRed - Red Social Universitaria",
-    description="API REST completa para red social universitaria con estructura académica, publicaciones, grupos, mensajería y notificaciones",
-    version="2.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
-    redirect_slashes=False
-)
+def create_app() -> FastAPI:
+    app = FastAPI(
+        title="API UPRed - Red Social Universitaria",
+        description="API REST completa para red social universitaria con estructura académica, publicaciones, grupos, mensajería y notificaciones",
+        version="2.0.0",
+        docs_url="/docs",
+        redoc_url="/redoc",
+        redirect_slashes=False,
+    )
+    _register_middlewares(app)
+    _register_routes(app)
+    _register_exception_handlers(app)
+    return app
 
-# CORS configurado para permitir TODAS las conexiones
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Permite conexión desde cualquier origen
-    allow_credentials=True,
-    allow_methods=["*"],  # Todos los métodos HTTP
-    allow_headers=["*"],  # Todos los headers
-)
 
-# Incluir routers
-app.include_router(auth.router)
-app.include_router(estructura.router)
-app.include_router(usuarios.router)
-app.include_router(publicaciones.router)
-app.include_router(grupos.router)
-app.include_router(mensajes.router)
-app.include_router(notificaciones.router)
+def _register_middlewares(app: FastAPI) -> None:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
-# Ruta raíz
+
+def _register_routes(app: FastAPI) -> None:
+    app.include_router(auth.router)
+    app.include_router(estructura.router)
+    app.include_router(usuarios.router)
+    app.include_router(publicaciones.router)
+    app.include_router(grupos.router)
+    app.include_router(mensajes.router)
+    app.include_router(notificaciones.router)
+
+def _register_exception_handlers(app: FastAPI) -> None:
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "Error interno del servidor",
+                "error": str(exc) if settings.DEBUG else "Internal Server Error",
+            },
+        )
+
+
+app = create_app()
+
+
 @app.get("/")
 def root():
     return {
@@ -44,7 +64,7 @@ def root():
         "version": "2.0.0",
         "documentacion": {
             "swagger": "/docs",
-            "redoc": "/redoc"
+            "redoc": "/redoc",
         },
         "endpoints": {
             "autenticacion": "/api/auth",
@@ -53,29 +73,18 @@ def root():
             "publicaciones": "/api/publicaciones",
             "grupos": "/api/grupos",
             "mensajeria": "/api/mensajes",
-            "notificaciones": "/api/notificaciones"
-        }
+            "notificaciones": "/api/notificaciones",
+        },
     }
 
-# Ruta de health check
+
 @app.get("/health")
 def health_check():
     return {
         "status": "ok",
         "database": "connected",
-        "version": "2.0.0"
+        "version": "2.0.0",
     }
-
-# Manejador de errores global
-@app.exception_handler(Exception)
-async def global_exception_handler(request, exc):
-    return JSONResponse(
-        status_code=500,
-        content={
-            "detail": "Error interno del servidor",
-            "error": str(exc) if settings.DEBUG else "Internal Server Error"
-        }
-    )
 
 if __name__ == "__main__":
     import uvicorn
