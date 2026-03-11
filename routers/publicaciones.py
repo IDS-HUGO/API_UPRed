@@ -126,7 +126,7 @@ async def _extract_publicacion_data(request: Request):
             "permite_comentarios": _parse_bool(form.get("permite_comentarios"), True),
             "es_anonima": _parse_bool(form.get("es_anonima"), False),
         }
-        files = [f for f in files if isinstance(f, UploadFile)]
+        files = [f for f in files if getattr(f, "filename", None)]
         return data, files
 
     payload = await request.json()
