@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status, Query, Request, UploadFile
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func, and_
 from typing import List, Optional
 from pydantic import ValidationError
 from database import get_db
+import cloudinary_service
 from models import (
     Publicacion, TipoPublicacion, ComentarioPublicacion, ReaccionPublicacion,
     CatalogoReaccion, MultimediaPublicacion, Usuario, RolUsuario,
@@ -58,10 +60,7 @@ def _build_publicacion_response(pub: Publicacion, db: Session) -> dict:
         "publicada_en": pub.publicada_en,
         "actualizada_en": pub.actualizada_en,
         "autor": autor_data,
-        "imagen_url": f"/api/publicaciones/{pub.id}/imagen" if db.query(MultimediaPublicacion).filter(
-            MultimediaPublicacion.publicacion_id == pub.id,
-            MultimediaPublicacion.tipo == TipoMensaje.imagen
-        ).first() else None,
+        "imagen_url": _get_imagen_url(pub.id, db),
         "total_comentarios": db.query(func.count(ComentarioPublicacion.id)).filter(
             ComentarioPublicacion.publicacion_id == pub.id,
             ComentarioPublicacion.activo == True
@@ -70,6 +69,20 @@ def _build_publicacion_response(pub: Publicacion, db: Session) -> dict:
             ReaccionPublicacion.publicacion_id == pub.id
         ).scalar() or 0
     }
+
+def _get_imagen_url(publicacion_id: int, db: Session) -> Optional[str]:
+    """Retorna la URL de Cloudinary si existe, o None."""
+    media = db.query(MultimediaPublicacion).filter(
+        MultimediaPublicacion.publicacion_id == publicacion_id,
+        MultimediaPublicacion.tipo == TipoMensaje.imagen,
+    ).order_by(MultimediaPublicacion.orden.asc()).first()
+    if not media:
+        return None
+    # URL de Cloudinary tiene precedencia; fallback al endpoint binario legacy
+    if media.url_archivo:
+        return media.url_archivo
+    return f"/api/publicaciones/{publicacion_id}/imagen"
+
 
 def _parse_int(value: Optional[str]) -> Optional[int]:
     if value is None:
@@ -431,16 +444,23 @@ def buscar_publicaciones(
 
 @router.get("/{publicacion_id}/imagen")
 def obtener_imagen_publicacion(publicacion_id: int, db: Session = Depends(get_db)):
-    """Devuelve la primera imagen guardada en BD para una publicación"""
+    """Redirige a la URL de Cloudinary o sirve datos binarios legacy"""
     media = db.query(MultimediaPublicacion).filter(
         MultimediaPublicacion.publicacion_id == publicacion_id,
-        MultimediaPublicacion.tipo == TipoMensaje.imagen
+        MultimediaPublicacion.tipo == TipoMensaje.imagen,
     ).order_by(MultimediaPublicacion.orden.asc()).first()
 
-    if not media or not media.datos_archivo:
+    if not media:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Imagen no encontrada")
 
-    return Response(content=media.datos_archivo, media_type="image/jpeg")
+    if media.url_archivo:
+        return RedirectResponse(url=media.url_archivo, status_code=302)
+
+    # Fallback: datos binarios almacenados antes de Cloudinary
+    if media.datos_archivo:
+        return Response(content=media.datos_archivo, media_type="image/jpeg")
+
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Imagen no encontrada")
 
 
 @router.get("/{publicacion_id}", response_model=PublicacionResponse)
@@ -518,7 +538,7 @@ async def crear_publicacion(
     db.add(nueva_publicacion)
     db.flush()
 
-    # Guardar archivos en la base de datos directamente
+    # Subir imágenes a Cloudinary
     if files:
         for index, file in enumerate(files, start=1):
             if not file.content_type or not file.content_type.startswith("image/"):
@@ -528,31 +548,34 @@ async def crear_publicacion(
                     detail="Solo se permiten imagenes"
                 )
             try:
-                # Leer el contenido del archivo
                 file_data = await file.read()
-                
-                # Validar tamaño (máximo 5MB)
+
                 if len(file_data) > 5 * 1024 * 1024:
                     db.rollback()
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail="La imagen no debe superar 5MB"
                     )
-                
-                # Crear registro de multimedia con datos binarios
+
+                public_id = f"publicaciones/{nueva_publicacion.id}_{index}"
+                cloudinary_url = cloudinary_service.upload_image(file_data, public_id)
+
                 multimedia = MultimediaPublicacion(
                     publicacion_id=nueva_publicacion.id,
                     tipo=TipoMensaje.imagen,
-                    datos_archivo=file_data,
-                    url_archivo=f"image_{nueva_publicacion.id}_{index}",  # Referencia
+                    url_archivo=cloudinary_url,
+                    datos_archivo=None,
                     orden=index
                 )
                 db.add(multimedia)
+            except HTTPException:
+                db.rollback()
+                raise
             except Exception as e:
                 db.rollback()
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Error al guardar imagen: {str(e)}"
+                    detail=f"Error al subir imagen: {str(e)}"
                 )
 
     # Registrar en auditoria
