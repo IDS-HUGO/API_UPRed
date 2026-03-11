@@ -3,12 +3,16 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
 from typing import List, Optional
 from database import get_db
-from models import Usuario, Seguidor, RolUsuario, EstadoUsuario, Auditoria
+from models import (
+    Usuario, Seguidor, RolUsuario, EstadoUsuario, Auditoria,
+    Publicacion, ReaccionPublicacion, ComentarioPublicacion
+)
 from schemas import (
     UsuarioResponse, UsuarioUpdate, Message,
     SeguidorCreate, SeguidorResponse, BusquedaUsuarios
 )
 from auth import get_current_user, require_roles
+
 
 router = APIRouter(prefix="/api/usuarios", tags=["Usuarios"])
 
@@ -268,6 +272,142 @@ def obtener_estadisticas_usuario(
     total_siguiendo = db.query(func.count(Seguidor.seguido_id)).filter(
         Seguidor.seguidor_id == usuario_id
     ).scalar() or 0
+    
+    # Contar publicaciones
+    total_publicaciones = db.query(func.count(Publicacion.id)).filter(
+        Publicacion.autor_id == usuario_id
+    ).scalar() or 0
+    
+    # Contar comentarios
+    total_comentarios = db.query(func.count(ComentarioPublicacion.id)).filter(
+        ComentarioPublicacion.usuario_id == usuario_id,
+        ComentarioPublicacion.activo == True
+    ).scalar() or 0
+    
+    # Contar reacciones
+    total_reacciones = db.query(func.count(ReaccionPublicacion.usuario_id)).filter(
+        ReaccionPublicacion.usuario_id == usuario_id
+    ).scalar() or 0
+    
+    return {
+        "usuario_id": usuario_id,
+        "nombre_completo": f"{usuario.nombre} {usuario.apellido_paterno}",
+        "total_seguidores": total_seguidores,
+        "total_siguiendo": total_siguiendo,
+        "total_publicaciones": total_publicaciones,
+        "total_comentarios": total_comentarios,
+        "total_reacciones": total_reacciones
+    }
+
+
+# =====================================================================
+# ENDPOINTS DE PERFIL
+# =====================================================================
+
+@router.get("/perfil/actual", response_model=UsuarioResponse)
+def obtener_perfil_actual(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Obtiene el perfil del usuario autenticado"""
+    usuario = db.query(Usuario).filter(Usuario.id == current_user.id).first()
+    if not usuario:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario no encontrado"
+        )
+    return usuario
+
+
+@router.put("/perfil/actualizar", response_model=UsuarioResponse)
+def actualizar_perfil(
+    usuario_update: UsuarioUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Actualiza el perfil del usuario autenticado"""
+    usuario = db.query(Usuario).filter(Usuario.id == current_user.id).first()
+    if not usuario:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario no encontrado"
+        )
+    
+    # Actualizar campos permitidos
+    update_data = usuario_update.model_dump(exclude_unset=True)
+    
+    # Excluir cambios de email o ID
+    update_data.pop('correo_institucional', None)
+    update_data.pop('id', None)
+    
+    for key, value in update_data.items():
+        setattr(usuario, key, value)
+    
+    db.commit()
+    db.refresh(usuario)
+    
+    # Registrar auditoría
+    auditoria = Auditoria(
+        tipo_accion="actualizar_perfil",
+        usuario_id=current_user.id,
+        detalles={"usuario_id": current_user.id}
+    )
+    db.add(auditoria)
+    db.commit()
+    
+    return usuario
+
+
+@router.get("/perfil/completo/{usuario_id}")
+def obtener_perfil_completo(
+    usuario_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Obtiene el perfil completo de un usuario con estadísticas"""
+    usuario = db.query(Usuario).filter(
+        Usuario.id == usuario_id,
+        Usuario.estado == EstadoUsuario.activo
+    ).first()
+    
+    if not usuario:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario no encontrado o no disponible"
+        )
+    
+    # Obtener estadísticas
+    total_seguidores = db.query(func.count(Seguidor.seguidor_id)).filter(
+        Seguidor.seguido_id == usuario_id
+    ).scalar() or 0
+    
+    total_siguiendo = db.query(func.count(Seguidor.seguido_id)).filter(
+        Seguidor.seguidor_id == usuario_id
+    ).scalar() or 0
+    
+    total_publicaciones = db.query(func.count(Publicacion.id)).filter(
+        Publicacion.autor_id == usuario_id
+    ).scalar() or 0
+    
+    # Verificar si el usuario actual sigue al usuario consultado
+    ya_sigue = db.query(Seguidor).filter(
+        Seguidor.seguidor_id == current_user.id,
+        Seguidor.seguido_id == usuario_id
+    ).first() is not None
+    
+    return {
+        "usuario": UsuarioResponse.model_validate(usuario),
+        "estadisticas": {
+            "total_seguidores": total_seguidores,
+            "total_siguiendo": total_siguiendo,
+            "total_publicaciones": total_publicaciones
+        },
+        "relacion_actual": {
+            "ya_sigue": ya_sigue,
+            "es_mismo_usuario": current_user.id == usuario_id
+        }
+    }
+
     
     # Contar publicaciones
     from models import Publicacion

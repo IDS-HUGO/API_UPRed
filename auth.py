@@ -106,21 +106,3 @@ def require_roles(allowed_roles: list[RolUsuario]):
             )
         return current_user
     return role_checker
-
-# Funciones auxiliares para verificar permisos
-
-def is_admin(user: Usuario) -> bool:
-    """Verifica si el usuario es administrador"""
-    return user.tipo_usuario == TipoUsuario.ADMINISTRADOR
-
-def is_docente(user: Usuario) -> bool:
-    """Verifica si el usuario es docente"""
-    return user.tipo_usuario == TipoUsuario.DOCENTE
-
-def is_alumno(user: Usuario) -> bool:
-    """Verifica si el usuario es alumno"""
-    return user.tipo_usuario == TipoUsuario.ALUMNO
-
-def can_modify_publicacion(user: Usuario, publicacion_usuario_id: int) -> bool:
-    """Verifica si el usuario puede modificar una publicación"""
-    return user.id == publicacion_usuario_id or is_admin(user)

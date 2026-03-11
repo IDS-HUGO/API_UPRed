@@ -20,3 +20,6 @@ email-validator==2.1.0
 
 # Utilidades
 python-dotenv==1.0.0
+
+# Almacenamiento en la nube
+cloudinary>=1.36.0

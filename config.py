@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
     DEBUG: bool = True
+    CORS_ALLOWED_ORIGINS: str = "*"
+
+    # Cloudinary
+    CLOUDINARY_CLOUD_NAME: str = ""
+    CLOUDINARY_API_KEY: str = ""
+    CLOUDINARY_API_SECRET: str = ""
     
     @property
     def database_url(self) -> str:
@@ -27,6 +33,13 @@ class Settings(BaseSettings):
             f"mysql+pymysql://{self.DB_USER}:{self.DB_PASSWORD}"
             f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}?charset=utf8mb4"
         )
+
+    @property
+    def cors_origins(self) -> list[str]:
+        value = self.CORS_ALLOWED_ORIGINS.strip()
+        if value == "*":
+            return ["*"]
+        return [origin.strip() for origin in value.split(",") if origin.strip()]
     
     class Config:
         env_file = ".env"
