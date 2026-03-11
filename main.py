@@ -1,8 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from database import engine, Base
-from routers import auth, publicaciones, estructura, usuarios, grupos, mensajes, notificaciones
+from routers import ALL_ROUTERS
 from config import settings
 
 # Comentar esta línea para que no cree tablas automáticamente (usaremos el script SQL)
@@ -34,13 +33,8 @@ def _register_middlewares(app: FastAPI) -> None:
 
 
 def _register_routes(app: FastAPI) -> None:
-    app.include_router(auth.router)
-    app.include_router(estructura.router)
-    app.include_router(usuarios.router)
-    app.include_router(publicaciones.router)
-    app.include_router(grupos.router)
-    app.include_router(mensajes.router)
-    app.include_router(notificaciones.router)
+    for router in ALL_ROUTERS:
+        app.include_router(router)
 
 def _register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(Exception)
@@ -71,6 +65,7 @@ def root():
             "estructura_academica": "/api/estructura",
             "usuarios": "/api/usuarios",
             "publicaciones": "/api/publicaciones",
+            "comentarios": "/api/comentarios",
             "grupos": "/api/grupos",
             "mensajeria": "/api/mensajes",
             "notificaciones": "/api/notificaciones",

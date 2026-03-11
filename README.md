@@ -146,12 +146,10 @@ python websocket_server.py
 ## 📖 Documentación de la API
 
 ### 📘 Manual Completo
-Consulta [MANUAL_API.md](MANUAL_API.md) para:
-- ✅ Todos los endpoints con ejemplos
-- ✅ JSON de request/response completos
-- ✅ Códigos de error y soluciones
-- ✅ Guía de WebSocket con ejemplos de código
-- ✅ 38+ ejemplos de uso listos para copiar
+La fuente oficial de endpoints es la especificación OpenAPI en tiempo real:
+- ✅ Swagger UI: `http://localhost:8000/docs`
+- ✅ ReDoc: `http://localhost:8000/redoc`
+- ✅ Esquemas de request/response actualizados automáticamente
 
 ### 🌐 Documentación Interactiva
 
@@ -292,7 +290,6 @@ API_UPRed/
 ├── requirements.txt             # Dependencias API
 ├── requirements_websocket.txt   # Dependencias WebSocket
 ├── .env.example                 # Template de variables
-├── MANUAL_API.md                # 📘 Manual completo con 38 ejemplos
 ├── README.md                    # Este archivo
 └── routers/
     ├── __init__.py
@@ -391,7 +388,7 @@ VALUES ('nuevo@universidad.edu', 1, 1);
 - `GET /api/notificaciones/` - Ver notificaciones
 - `PUT /api/notificaciones/{id}/leer` - Marcar como leída
 
-**Ver todos los endpoints:** [MANUAL_API.md](MANUAL_API.md)
+**Ver todos los endpoints:** `http://localhost:8000/docs`
 
 ---
 
@@ -446,7 +443,7 @@ Este proyecto es de código abierto y está disponible bajo la licencia MIT.
 
 ## 👨‍💻 Soporte
 
-- **Documentación completa:** [MANUAL_API.md](MANUAL_API.md)
+- **Documentación completa:** `http://localhost:8000/docs`
 - **Swagger UI:** http://localhost:8000/docs
 - **Issues:** Reporta problemas en el repositorio
 
