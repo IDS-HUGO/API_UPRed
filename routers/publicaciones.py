@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Response, status, Query, Request, UploadFile
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func, and_
 from typing import List, Optional
@@ -58,6 +58,10 @@ def _build_publicacion_response(pub: Publicacion, db: Session) -> dict:
         "publicada_en": pub.publicada_en,
         "actualizada_en": pub.actualizada_en,
         "autor": autor_data,
+        "imagen_url": f"/api/publicaciones/{pub.id}/imagen" if db.query(MultimediaPublicacion).filter(
+            MultimediaPublicacion.publicacion_id == pub.id,
+            MultimediaPublicacion.tipo == TipoMensaje.imagen
+        ).first() else None,
         "total_comentarios": db.query(func.count(ComentarioPublicacion.id)).filter(
             ComentarioPublicacion.publicacion_id == pub.id,
             ComentarioPublicacion.activo == True
@@ -425,6 +429,20 @@ def buscar_publicaciones(
     
     return result
 
+@router.get("/{publicacion_id}/imagen")
+def obtener_imagen_publicacion(publicacion_id: int, db: Session = Depends(get_db)):
+    """Devuelve la primera imagen guardada en BD para una publicación"""
+    media = db.query(MultimediaPublicacion).filter(
+        MultimediaPublicacion.publicacion_id == publicacion_id,
+        MultimediaPublicacion.tipo == TipoMensaje.imagen
+    ).order_by(MultimediaPublicacion.orden.asc()).first()
+
+    if not media or not media.datos_archivo:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Imagen no encontrada")
+
+    return Response(content=media.datos_archivo, media_type="image/jpeg")
+
+
 @router.get("/{publicacion_id}", response_model=PublicacionResponse)
 def obtener_publicacion(publicacion_id: int, db: Session = Depends(get_db)):
     """Obtiene una publicación por ID"""
@@ -557,6 +575,9 @@ async def crear_publicacion(
     return _build_publicacion_response(nueva_publicacion, db)
 
 @router.put("/{publicacion_id}", response_model=PublicacionResponse)
+@router.put("/{publicacion_id}/", response_model=PublicacionResponse, include_in_schema=False)
+@router.patch("/{publicacion_id}", response_model=PublicacionResponse, include_in_schema=False)
+@router.patch("/{publicacion_id}/", response_model=PublicacionResponse, include_in_schema=False)
 def actualizar_publicacion(
     publicacion_id: int,
     publicacion_data: PublicacionUpdate,
@@ -589,6 +610,7 @@ def actualizar_publicacion(
     return _build_publicacion_response(publicacion, db)
 
 @router.delete("/{publicacion_id}", response_model=Message)
+@router.delete("/{publicacion_id}/", response_model=Message, include_in_schema=False)
 def eliminar_publicacion(
     publicacion_id: int,
     db: Session = Depends(get_db),

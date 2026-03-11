@@ -273,6 +273,7 @@ class PublicacionResponse(PublicacionBase):
     activa: bool
     publicada_en: datetime
     actualizada_en: datetime
+    imagen_url: Optional[str] = None
     autor: Optional[AutorSimplificadoResponse] = None
     tipo_publicacion: Optional[TipoPublicacionResponse] = None
     carrera_objetivo: Optional[CarreraResponse] = None
