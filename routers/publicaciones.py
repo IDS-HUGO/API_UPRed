@@ -558,25 +558,45 @@ async def crear_publicacion(
                     )
 
                 public_id = f"publicaciones/{nueva_publicacion.id}_{index}"
-                cloudinary_url = cloudinary_service.upload_image(file_data, public_id)
 
-                multimedia = MultimediaPublicacion(
-                    publicacion_id=nueva_publicacion.id,
-                    tipo=TipoMensaje.imagen,
-                    url_archivo=cloudinary_url,
-                    datos_archivo=None,
-                    orden=index
-                )
+                if cloudinary_service.is_configured():
+                    cloudinary_url = cloudinary_service.upload_image(file_data, public_id)
+                    multimedia = MultimediaPublicacion(
+                        publicacion_id=nueva_publicacion.id,
+                        tipo=TipoMensaje.imagen,
+                        url_archivo=cloudinary_url,
+                        datos_archivo=None,
+                        orden=index
+                    )
+                else:
+                    multimedia = MultimediaPublicacion(
+                        publicacion_id=nueva_publicacion.id,
+                        tipo=TipoMensaje.imagen,
+                        url_archivo=None,
+                        datos_archivo=file_data,
+                        orden=index
+                    )
+
                 db.add(multimedia)
             except HTTPException:
                 db.rollback()
                 raise
             except Exception as e:
-                db.rollback()
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Error al subir imagen: {str(e)}"
-                )
+                try:
+                    multimedia = MultimediaPublicacion(
+                        publicacion_id=nueva_publicacion.id,
+                        tipo=TipoMensaje.imagen,
+                        url_archivo=None,
+                        datos_archivo=file_data,
+                        orden=index
+                    )
+                    db.add(multimedia)
+                except Exception:
+                    db.rollback()
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail=f"Error al procesar imagen: {str(e)}"
+                    )
 
     # Registrar en auditoria
     auditoria = Auditoria(
