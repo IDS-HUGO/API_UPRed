@@ -2,11 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta, datetime
+from hashlib import sha256
+import random
 import re
 from database import get_db
 from models import Usuario, CatalogoCorreo, RolUsuario, EstadoUsuario, Auditoria, Carrera
 from schemas import (
-    UsuarioCreate, UsuarioResponse, Token, UsuarioLogin, Message
+    UsuarioCreate, UsuarioResponse, Token, UsuarioLogin, Message,
+    ForgotPasswordRequest, ForgotPasswordConfirmRequest, ForgotPasswordRequestResponse
 )
 from auth import (
     get_password_hash, authenticate_user, create_access_token,
@@ -207,3 +210,93 @@ async def get_me(current_user: Usuario = Depends(get_current_user)):
 async def logout(current_user: Usuario = Depends(get_current_user)):
     """Cierra la sesión del usuario (en el cliente debe eliminar el token)"""
     return {"message": "Sesión cerrada correctamente"}
+
+
+@router.post("/forgot-password/request", response_model=ForgotPasswordRequestResponse)
+def request_password_reset(payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    """Genera un codigo temporal para restablecer contraseña"""
+    correo = payload.correo_institucional.strip().lower()
+    usuario = db.query(Usuario).filter(Usuario.correo_institucional == correo).first()
+
+    # Respuesta generica para no revelar si el correo existe o no
+    generic_message = "Si el correo existe, se genero un codigo de recuperacion valido por 15 minutos"
+    if usuario is None:
+        return {"message": generic_message}
+
+    code = f"{random.randint(0, 999999):06d}"
+    code_hash = sha256(code.encode("utf-8")).hexdigest()
+    expires_at = datetime.utcnow() + timedelta(minutes=15)
+
+    db.add(
+        Auditoria(
+            actor_usuario_id=usuario.id,
+            accion="password_reset_request",
+            entidad="auth_password_reset",
+            entidad_id=str(usuario.id),
+            detalle={
+                "correo": correo,
+                "codigo_hash": code_hash,
+                "expira_en": expires_at.isoformat(),
+                "usado": False,
+            },
+        )
+    )
+    db.commit()
+
+    # En debug devolvemos el codigo para pruebas locales
+    if settings.DEBUG:
+        return {"message": generic_message, "reset_code": code}
+
+    return {"message": generic_message}
+
+
+@router.post("/forgot-password/confirm", response_model=Message)
+def confirm_password_reset(payload: ForgotPasswordConfirmRequest, db: Session = Depends(get_db)):
+    """Valida codigo de recuperacion y actualiza contraseña"""
+    correo = payload.correo_institucional.strip().lower()
+    usuario = db.query(Usuario).filter(Usuario.correo_institucional == correo).first()
+    if usuario is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Codigo invalido o expirado")
+
+    registro = db.query(Auditoria).filter(
+        Auditoria.actor_usuario_id == usuario.id,
+        Auditoria.accion == "password_reset_request",
+        Auditoria.entidad == "auth_password_reset"
+    ).order_by(Auditoria.creada_en.desc()).first()
+
+    if registro is None or not isinstance(registro.detalle, dict):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Codigo invalido o expirado")
+
+    detalle = dict(registro.detalle)
+    if detalle.get("usado") is True:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El codigo ya fue usado")
+
+    expira_en = detalle.get("expira_en")
+    try:
+        expira_en_dt = datetime.fromisoformat(expira_en)
+    except Exception:
+        expira_en_dt = None
+
+    if expira_en_dt is None or datetime.utcnow() > expira_en_dt:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Codigo invalido o expirado")
+
+    payload_hash = sha256(payload.codigo.encode("utf-8")).hexdigest()
+    if payload_hash != detalle.get("codigo_hash"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Codigo invalido o expirado")
+
+    usuario.hash_contrasena = get_password_hash(payload.nueva_password)
+    detalle["usado"] = True
+    registro.detalle = detalle
+
+    db.add(
+        Auditoria(
+            actor_usuario_id=usuario.id,
+            accion="password_reset_completed",
+            entidad="usuarios",
+            entidad_id=str(usuario.id),
+            detalle={"correo": correo},
+        )
+    )
+    db.commit()
+
+    return {"message": "Contrasena actualizada correctamente"}
