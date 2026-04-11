@@ -5,13 +5,16 @@ from typing import List, Optional
 from database import get_db
 from models import (
     Usuario, Seguidor, RolUsuario, EstadoUsuario, Auditoria,
-    Publicacion, ReaccionPublicacion, ComentarioPublicacion
+    Publicacion, ReaccionPublicacion, ComentarioPublicacion,
+    Notificacion, DispositivoUsuario
 )
 from schemas import (
     UsuarioResponse, UsuarioUpdate, Message,
     SeguidorCreate, SeguidorResponse, BusquedaUsuarios
 )
 from auth import get_current_user, require_roles
+from datetime import datetime
+from services.firebase_push_service import firebase_push_service
 
 
 router = APIRouter(prefix="/api/usuarios", tags=["Usuarios"])
@@ -191,7 +194,45 @@ def seguir_usuario(
         seguido_id=usuario_id
     )
     db.add(nuevo_seguidor)
+
+    # Notificacion interna para centro de notificaciones
+    notificacion = Notificacion(
+        usuario_id=usuario_id,
+        tipo="nuevo_seguidor",
+        titulo="Tienes un nuevo seguidor",
+        cuerpo=f"{current_user.nombre} {current_user.apellido_paterno} comenzo a seguirte",
+        datos={
+            "follower_user_id": str(current_user.id),
+            "follower_name": f"{current_user.nombre} {current_user.apellido_paterno}".strip(),
+        },
+        leida=False,
+        creada_en=datetime.utcnow(),
+    )
+    db.add(notificacion)
+
     db.commit()
+
+    # Intento de push FCM (no bloquea la accion principal si falla)
+    try:
+        dispositivo = db.query(DispositivoUsuario).filter(
+            DispositivoUsuario.usuario_id == usuario_id,
+            DispositivoUsuario.activo == True,
+            DispositivoUsuario.token_push.isnot(None)
+        ).order_by(DispositivoUsuario.ultima_actividad_en.desc()).first()
+
+        if dispositivo and dispositivo.token_push:
+            firebase_push_service.send_to_token(
+                token=dispositivo.token_push,
+                title="Nuevo seguidor",
+                body=f"{current_user.nombre} {current_user.apellido_paterno} comenzo a seguirte",
+                data={
+                    "title": "Nuevo seguidor",
+                    "body": f"{current_user.nombre} {current_user.apellido_paterno} comenzo a seguirte",
+                    "follower_user_id": str(current_user.id),
+                },
+            )
+    except Exception:
+        pass
     
     return {"message": "Ahora sigues a este usuario"}
 

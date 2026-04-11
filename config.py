@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     CLOUDINARY_CLOUD_NAME: str = ""
     CLOUDINARY_API_KEY: str = ""
     CLOUDINARY_API_SECRET: str = ""
+
+    # Firebase
+    FIREBASE_SERVICE_ACCOUNT_PATH: str = ""
     
     @property
     def database_url(self) -> str:

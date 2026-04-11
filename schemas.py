@@ -514,6 +514,33 @@ class NotificacionResponse(BaseModel):
     
     model_config = ConfigDict(from_attributes=True)
 
+class DeviceRegistrationRequest(BaseModel):
+    uuid_dispositivo: str = Field(..., min_length=3, max_length=120)
+    plataforma: str = Field(default="android", max_length=20)
+    token_push: Optional[str] = None
+
+class DeviceTokenUpdateRequest(BaseModel):
+    uuid_dispositivo: str = Field(..., min_length=3, max_length=120)
+    token_push: str = Field(..., min_length=20)
+
+class NotificationConfigRequest(BaseModel):
+    push_enabled: bool = True
+    chat_enabled: bool = True
+    groups_enabled: bool = True
+    social_enabled: bool = True
+
+class SyncEventRequest(BaseModel):
+    event_type: str = Field(..., min_length=2, max_length=120)
+    payload: dict = Field(default_factory=dict)
+    created_at: int
+
+class SyncEventsBatchRequest(BaseModel):
+    events: List[SyncEventRequest] = Field(default_factory=list)
+
+class NotificationSummaryResponse(BaseModel):
+    total_no_leidas: int = 0
+    last_notification_at: Optional[datetime] = None
+
 # =====================================================================
 # SCHEMA DE SEGUIDORES
 # =====================================================================
