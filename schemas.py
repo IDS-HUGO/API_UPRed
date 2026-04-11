@@ -202,6 +202,21 @@ class TokenData(BaseModel):
     correo_institucional: Optional[str] = None
     rol: Optional[RolUsuario] = None
 
+
+class ForgotPasswordRequest(BaseModel):
+    correo_institucional: EmailStr
+
+
+class ForgotPasswordConfirmRequest(BaseModel):
+    correo_institucional: EmailStr
+    codigo: str = Field(..., min_length=6, max_length=6)
+    nueva_password: str = Field(..., min_length=6, max_length=100)
+
+
+class ForgotPasswordRequestResponse(BaseModel):
+    message: str
+    reset_code: Optional[str] = None
+
 # =====================================================================
 # SCHEMA DE TIPOS DE PUBLICACIÓN
 # =====================================================================
