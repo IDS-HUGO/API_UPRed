@@ -1,0 +1,98 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                  🔧 DIAGNÓSTICO COMPLETO - Push Notifications             ║
+║                        RED-UP HILT - UPRed API                            ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+┌─ PROBLEMA ──────────────────────────────────────────────────────────────────
+│ ❌ Notificaciones push NO llegan en seguidos ni comentarios
+│ ⚠️  Logs muestran: "Sin dispositivo activo para push"
+└─────────────────────────────────────────────────────────────────────────────
+
+┌─ CAUSA RAÍZ ────────────────────────────────────────────────────────────────
+│ La app móvil NUNCA llama a: POST /api/notificaciones/dispositivos
+│ 
+│ Resultado:
+│   • BD sin tokens push almacenados
+│   • Backend no puede enviar notificaciones
+│   • Usuario no recibe nada
+└─────────────────────────────────────────────────────────────────────────────
+
+┌─ CAMBIOS REALIZADOS AL BACKEND ─────────────────────────────────────────────
+│ 
+│ ✅ Configuración
+│    └─ Creado .env con ruta correcta: /home/ec2-user/firebase-service-account.json
+│       (Antes: C:/secure/firebase-service-account.json ❌ WINDOWS)
+│
+│ ✅ Código
+│    ├─ services/firebase_push_service.py mejorado:
+│    │  ├─ Mejor manejo de excepciones en _initialize()
+│    │  ├─ Validación de tokens vacíos/None
+│    │  ├─ Logging detallado (enabled status, error type)
+│    │  └─ Try-catch en inicialización
+│    └─ Endpoints ya estaban bien
+│
+│ ✅ Documentación Completa (8 archivos)
+│    ├─ QUICK_START.md ⭐ (Lee ESTO primero)
+│    ├─ DEBUG_PUSH.md (Guía paso a paso)
+│    ├─ MOBILE_PUSH_SETUP.md (Código Kotlin exacto)
+│    ├─ CAMBIOS_REALIZADOS.md (Summary detallado)
+│    ├─ README_PUSH.md (Overview)
+│    ├─ diagnose_push.py (Verificación automática)
+│    ├─ queries_push.sql (Inspect BD)
+│    └─ setup_firebase_push.sh (Setup EC2)
+│
+└─────────────────────────────────────────────────────────────────────────────
+
+┌─ STATUS ACTUAL ─────────────────────────────────────────────────────────────
+│
+│  Backend API
+│  ├─ Endpoints push          ✅ Listos
+│  ├─ Firebase Service        ✅ Mejorado
+│  ├─ Config (.env)           ✅ Actualizado
+│  ├─ Registrar dispositivo   ✅ POST /api/notificaciones/dispositivos
+│  └─ Test push              ✅ POST /api/notificaciones/push/test
+│
+│  Firebase Admin SDK         ❓ Necesita JSON en EC2
+│
+│  Database
+│  ├─ Tabla dispositivos      ✅ Existe
+│  ├─ Registros               ❌ VACÍA (app no registra)
+│  └─ Notificaciones          ✅ Se crean OK
+│
+│  App Móvil (Android)        ❌ Falta registrar dispositivo
+│
+└─────────────────────────────────────────────────────────────────────────────
+
+┌─ PRÓXIMOS PASOS ────────────────────────────────────────────────────────────
+│
+│ 1️⃣  EC2 Backend:
+│    • Copiar firebase-service-account.json a /home/ec2-user/
+│    • bash setup_firebase_push.sh /home/ec2-user/firebase-service-account.json
+│    • python diagnose_push.py
+│
+│ 2️⃣  App Móvil (CRÍTICO):
+│    • Leer: MOBILE_PUSH_SETUP.md
+│    • Implementar POST /api/notificaciones/dispositivos después de login
+│    • Código Kotlin proporcionado en documentación
+│
+│ 3️⃣  Test:
+│    • curl http://EC2:8000/api/notificaciones/push/status
+│    • Seguir usuario → notificación llega ✅
+│
+└─────────────────────────────────────────────────────────────────────────────
+
+ARCHIVOS DOCUMENTACIÓN CREADOS:
+
+✅ QUICK_START.md              - Lee primero (resumen rápido)
+✅ DEBUG_PUSH.md               - Guía completa con ejemplos curl
+✅ MOBILE_PUSH_SETUP.md        - Código Kotlin exacto ⭐ IMPORTANTE
+✅ CAMBIOS_REALIZADOS.md       - Summary de cambios
+✅ README_PUSH.md              - Overview general
+✅ diagnose_push.py            - Script diagnóstico Python
+✅ queries_push.sql            - Queries para inspeccionar BD
+✅ setup_firebase_push.sh      - Setup automatizado
+✅ .env                        - Configuración actualizada
+✅ PROGRESS.txt                - Este archivo
+
+Estado: 🟢 Backend listo | 🔴 App necesita cambios
+Tiempo estimado: 30 minutos implementación app

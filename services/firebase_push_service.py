@@ -37,12 +37,15 @@ class FirebasePushService:
             self._logger.error("No existe archivo de credenciales Firebase en ruta: %s", credential_path)
             return
 
-        if not firebase_admin._apps:
-            cred = credentials.Certificate(credential_path)
-            firebase_admin.initialize_app(cred)
-
-        self._enabled = True
-        self._logger.info("Firebase Push habilitado correctamente con credenciales: %s", credential_path)
+        try:
+            if not firebase_admin._apps:
+                cred = credentials.Certificate(credential_path)
+                firebase_admin.initialize_app(cred)
+            self._enabled = True
+            self._logger.info("Firebase Push habilitado correctamente con credenciales: %s", credential_path)
+        except Exception as e:
+            self._logger.error("Error inicializando Firebase: %s", str(e))
+            self._enabled = False
 
     @property
     def enabled(self) -> bool:
@@ -62,7 +65,11 @@ class FirebasePushService:
         data: Optional[dict[str, str]] = None,
     ) -> bool:
         if not self._enabled or messaging is None:
-            self._logger.warning("Intento de envio push con Firebase deshabilitado. token_present=%s", bool(token))
+            self._logger.warning("Intento de envio push con Firebase deshabilitado. token_present=%s enabled=%s", bool(token), self._enabled)
+            return False
+
+        if not token or not token.strip():
+            self._logger.warning("Token vacio o None en send_to_token")
             return False
 
         try:
@@ -75,8 +82,8 @@ class FirebasePushService:
             response = messaging.send(message)
             self._logger.info("Push enviado correctamente. response=%s token_suffix=%s", response, token[-8:] if token else "none")
             return True
-        except Exception:
-            self._logger.exception("Error enviando push via Firebase. token_suffix=%s", token[-8:] if token else "none")
+        except Exception as e:
+            self._logger.exception("Error enviando push via Firebase. error_type=%s token_suffix=%s", type(e).__name__, token[-8:] if token else "none")
             return False
 
 
