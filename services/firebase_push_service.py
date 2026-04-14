@@ -19,11 +19,13 @@ class FirebasePushService:
     def __init__(self) -> None:
         self._enabled = False
         self._credential_path = ""
+        self._last_error = ""
         self._logger = logging.getLogger("upred.firebase_push")
         self._initialize()
 
     def _initialize(self) -> None:
         if firebase_admin is None:
+            self._last_error = "firebase_admin no disponible"
             self._logger.warning("firebase_admin no disponible. Push deshabilitado.")
             return
 
@@ -45,9 +47,11 @@ class FirebasePushService:
         self._credential_path = credential_path
 
         if not credential_path:
+            self._last_error = "FIREBASE_SERVICE_ACCOUNT_PATH vacio y sin archivo detectable"
             self._logger.warning("FIREBASE_SERVICE_ACCOUNT_PATH vacio y no se encontro archivo en rutas comunes. Push deshabilitado.")
             return
         if not os.path.exists(credential_path):
+            self._last_error = f"No existe archivo de credenciales en ruta: {credential_path}"
             self._logger.error("No existe archivo de credenciales Firebase en ruta: %s", credential_path)
             return
 
@@ -56,19 +60,23 @@ class FirebasePushService:
                 cred = credentials.Certificate(credential_path)
                 firebase_admin.initialize_app(cred)
             self._enabled = True
+            self._last_error = ""
             self._logger.info("Firebase Push habilitado correctamente con credenciales: %s", credential_path)
         except Exception as e:
             self._logger.error("Error inicializando Firebase: %s", str(e))
             self._enabled = False
+            self._last_error = str(e)
 
     @property
     def enabled(self) -> bool:
         return self._enabled
 
-    def get_status(self) -> dict[str, bool]:
+    def get_status(self) -> dict[str, object]:
         return {
             "enabled": self._enabled,
             "service_account_path_present": bool(self._credential_path),
+            "service_account_path": self._credential_path or None,
+            "last_error": self._last_error or None,
         }
 
     def send_to_token(

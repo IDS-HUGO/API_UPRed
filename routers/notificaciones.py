@@ -231,6 +231,8 @@ def estado_push():
     return {
         "firebase_push_enabled": status["enabled"],
         "service_account_path_present": status["service_account_path_present"],
+        "service_account_path": status.get("service_account_path"),
+        "last_error": status.get("last_error"),
     }
 
 
