@@ -23,6 +23,22 @@ from services.cloudinary_service import cloudinary_service
 router = APIRouter(prefix="/api/usuarios", tags=["Usuarios"])
 logger = logging.getLogger("upred.usuarios")
 
+def _get_active_push_tokens(db: Session, user_id: int) -> list[str]:
+    dispositivos = db.query(DispositivoUsuario).filter(
+        DispositivoUsuario.usuario_id == user_id,
+        DispositivoUsuario.activo == True,
+        DispositivoUsuario.token_push.isnot(None)
+    ).order_by(DispositivoUsuario.ultima_actividad_en.desc()).all()
+    tokens: list[str] = []
+    seen_tokens: set[str] = set()
+    for dispositivo in dispositivos:
+        token = (dispositivo.token_push or "").strip()
+        if not token or token in seen_tokens:
+            continue
+        seen_tokens.add(token)
+        tokens.append(token)
+    return tokens
+
 def _parse_bool(value, default=False):
     if value is None:
         return default
@@ -314,38 +330,36 @@ def seguir_usuario(
 
     # Intento de push FCM (no bloquea la accion principal si falla)
     try:
-        dispositivo = db.query(DispositivoUsuario).filter(
-            DispositivoUsuario.usuario_id == usuario_id,
-            DispositivoUsuario.activo == True,
-            DispositivoUsuario.token_push.isnot(None)
-        ).order_by(DispositivoUsuario.ultima_actividad_en.desc()).first()
-
-        if dispositivo and dispositivo.token_push:
-            sent = firebase_push_service.send_to_token(
-                token=dispositivo.token_push,
-                title="Nuevo seguidor",
-                body=f"{current_user.nombre} {current_user.apellido_paterno} comenzo a seguirte",
-                data={
-                    "target_type": "perfil",
-                    "title": "Nuevo seguidor",
-                    "body": f"{current_user.nombre} {current_user.apellido_paterno} comenzo a seguirte",
-                    "follower_user_id": str(current_user.id),
-                    "user_id": str(usuario_id),
-                },
-            )
-            logger.info(
-                "Push nuevo_seguidor usuario_destino=%s follower=%s enviado=%s token_present=%s",
+        tokens = _get_active_push_tokens(db, usuario_id)
+        if not tokens:
+            logger.warning(
+                "Sin dispositivos activos para push nuevo_seguidor usuario_destino=%s follower=%s",
                 usuario_id,
                 current_user.id,
-                sent,
-                bool(dispositivo.token_push),
             )
         else:
-            logger.warning(
-                "Sin dispositivo activo para push nuevo_seguidor usuario_destino=%s follower=%s dispositivo=%s",
+            sent_count = 0
+            for token in tokens:
+                sent = firebase_push_service.send_to_token(
+                    token=token,
+                    title="Nuevo seguidor",
+                    body=f"{current_user.nombre} {current_user.apellido_paterno} comenzo a seguirte",
+                    data={
+                        "target_type": "perfil",
+                        "title": "Nuevo seguidor",
+                        "body": f"{current_user.nombre} {current_user.apellido_paterno} comenzo a seguirte",
+                        "follower_user_id": str(current_user.id),
+                        "user_id": str(usuario_id),
+                    },
+                )
+                if sent:
+                    sent_count += 1
+            logger.info(
+                "Push nuevo_seguidor usuario_destino=%s follower=%s enviados=%s total_tokens=%s",
                 usuario_id,
                 current_user.id,
-                dispositivo is not None,
+                sent_count,
+                len(tokens),
             )
     except Exception:
         logger.exception(

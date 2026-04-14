@@ -26,6 +26,22 @@ from config import settings
 router = APIRouter(prefix="/api/publicaciones", tags=["Publicaciones"])
 logger = logging.getLogger("upred.publicaciones")
 
+def _get_active_push_tokens(db: Session, user_id: int) -> list[str]:
+    dispositivos = db.query(DispositivoUsuario).filter(
+        DispositivoUsuario.usuario_id == user_id,
+        DispositivoUsuario.activo == True,
+        DispositivoUsuario.token_push.isnot(None)
+    ).order_by(DispositivoUsuario.ultima_actividad_en.desc()).all()
+    tokens: list[str] = []
+    seen_tokens: set[str] = set()
+    for dispositivo in dispositivos:
+        token = (dispositivo.token_push or "").strip()
+        if not token or token in seen_tokens:
+            continue
+        seen_tokens.add(token)
+        tokens.append(token)
+    return tokens
+
 # =====================================================================
 # ENDPOINT SIMPLIFICADO PARA MÓVIL (SIN AUTENTICACIÓN PARA DEBUG)
 # =====================================================================
@@ -755,37 +771,37 @@ def crear_comentario(
         db.commit()
 
         try:
-            dispositivo = db.query(DispositivoUsuario).filter(
-                DispositivoUsuario.usuario_id == publicacion.autor_id,
-                DispositivoUsuario.activo == True,
-                DispositivoUsuario.token_push.isnot(None)
-            ).order_by(DispositivoUsuario.ultima_actividad_en.desc()).first()
-
-            if dispositivo and dispositivo.token_push:
-                sent = firebase_push_service.send_to_token(
-                    token=dispositivo.token_push,
-                    title="Nuevo comentario",
-                    body=f"{current_user.nombre} {current_user.apellido_paterno} comento tu publicacion",
-                    data={
-                        "target_type": "publicacion",
-                        "title": "Nuevo comentario",
-                        "body": f"{current_user.nombre} {current_user.apellido_paterno} comento tu publicacion",
-                        "publication_id": str(publicacion_id),
-                        "user_id": str(publicacion.autor_id),
-                        "commenter_user_id": str(current_user.id),
-                    },
-                )
-                logger.info(
-                    "Push comentario desde publicaciones autor=%s comentario_id=%s enviado=%s",
+            tokens = _get_active_push_tokens(db, publicacion.autor_id)
+            if not tokens:
+                logger.warning(
+                    "Sin dispositivos activos para push comentario autor=%s comentario_id=%s",
                     publicacion.autor_id,
                     nuevo_comentario.id,
-                    sent,
                 )
             else:
-                logger.warning(
-                    "Sin dispositivo activo para push comentario autor=%s comentario_id=%s",
+                sent_count = 0
+                for token in tokens:
+                    sent = firebase_push_service.send_to_token(
+                        token=token,
+                        title="Nuevo comentario",
+                        body=f"{current_user.nombre} {current_user.apellido_paterno} comento tu publicacion",
+                        data={
+                            "target_type": "publicacion",
+                            "title": "Nuevo comentario",
+                            "body": f"{current_user.nombre} {current_user.apellido_paterno} comento tu publicacion",
+                            "publication_id": str(publicacion_id),
+                            "user_id": str(publicacion.autor_id),
+                            "commenter_user_id": str(current_user.id),
+                        },
+                    )
+                    if sent:
+                        sent_count += 1
+                logger.info(
+                    "Push comentario desde publicaciones autor=%s comentario_id=%s enviados=%s total_tokens=%s",
                     publicacion.autor_id,
                     nuevo_comentario.id,
+                    sent_count,
+                    len(tokens),
                 )
         except Exception:
             logger.exception(
