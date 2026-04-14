@@ -28,10 +28,24 @@ class FirebasePushService:
             return
 
         credential_path = settings.FIREBASE_SERVICE_ACCOUNT_PATH or os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH", "")
+        
+        # Si no hay path, buscar en la raíz del proyecto
+        if not credential_path:
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            possible_paths = [
+                os.path.join(project_root, "firebase-service-account.json"),
+                "/home/ec2-user/firebase-service-account.json",
+                os.path.join(os.path.expanduser("~"), "firebase-service-account.json"),
+            ]
+            for path in possible_paths:
+                if os.path.exists(path):
+                    credential_path = path
+                    break
+        
         self._credential_path = credential_path
 
         if not credential_path:
-            self._logger.warning("FIREBASE_SERVICE_ACCOUNT_PATH vacio. Push deshabilitado.")
+            self._logger.warning("FIREBASE_SERVICE_ACCOUNT_PATH vacio y no se encontro archivo en rutas comunes. Push deshabilitado.")
             return
         if not os.path.exists(credential_path):
             self._logger.error("No existe archivo de credenciales Firebase en ruta: %s", credential_path)

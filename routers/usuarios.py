@@ -255,7 +255,10 @@ def seguir_usuario(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Sigue a un usuario"""
+    logger.info("Intentando seguir usuario_id=%s por current_user_id=%s", usuario_id, current_user.id)
+    
     if usuario_id == current_user.id:
+        logger.warning("Usuario intento seguirse a si mismo: %s", current_user.id)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No puedes seguirte a ti mismo"
@@ -264,6 +267,7 @@ def seguir_usuario(
     # Verificar que el usuario existe
     usuario_a_seguir = db.query(Usuario).filter(Usuario.id == usuario_id).first()
     if not usuario_a_seguir:
+        logger.warning("Usuario a seguir no encontrado: %s", usuario_id)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Usuario no encontrado"
@@ -276,6 +280,7 @@ def seguir_usuario(
     ).first()
     
     if seguidor_existente:
+        logger.warning("Usuario ya sigue a este usuario: follower=%s followed=%s", current_user.id, usuario_id)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Ya sigues a este usuario"
@@ -287,6 +292,7 @@ def seguir_usuario(
         seguido_id=usuario_id
     )
     db.add(nuevo_seguidor)
+    logger.info("Relacion de seguimiento creada: follower=%s followed=%s", current_user.id, usuario_id)
 
     # Notificacion interna para centro de notificaciones
     notificacion = Notificacion(
@@ -299,11 +305,12 @@ def seguir_usuario(
             "follower_name": f"{current_user.nombre} {current_user.apellido_paterno}".strip(),
         },
         leida=False,
-        creada_en=datetime.utcnow(),
     )
     db.add(notificacion)
+    logger.info("Notificacion creada para usuario_id=%s", usuario_id)
 
     db.commit()
+    logger.info("Commit realizado para seguir usuario")
 
     # Intento de push FCM (no bloquea la accion principal si falla)
     try:
@@ -335,9 +342,10 @@ def seguir_usuario(
             )
         else:
             logger.warning(
-                "Sin dispositivo activo para push nuevo_seguidor usuario_destino=%s follower=%s",
+                "Sin dispositivo activo para push nuevo_seguidor usuario_destino=%s follower=%s dispositivo=%s",
                 usuario_id,
                 current_user.id,
+                dispositivo is not None,
             )
     except Exception:
         logger.exception(
