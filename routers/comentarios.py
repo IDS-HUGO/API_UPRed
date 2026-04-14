@@ -1,17 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
+import logging
 from database import get_db
 from models import (
-    ComentarioPublicacion, Usuario, Publicacion, Auditoria
+    ComentarioPublicacion, Usuario, Publicacion, Auditoria, Notificacion, DispositivoUsuario
 )
 from schemas import (
     ComentarioPublicacionCreate, ComentarioPublicacionUpdate, 
     ComentarioPublicacionResponse, Message
 )
 from auth import get_current_user
+from services.firebase_push_service import firebase_push_service
 
 router = APIRouter(prefix="/api/comentarios", tags=["Comentarios"])
+logger = logging.getLogger("upred.comentarios")
 
 # =====================================================================
 # ENDPOINTS DE COMENTARIOS EN PUBLICACIONES
@@ -61,6 +64,64 @@ def crear_comentario(
     db.add(nuevo_comentario)
     db.commit()
     db.refresh(nuevo_comentario)
+
+    # Notificacion interna + push al autor de la publicacion
+    if publicacion.autor_id != current_user.id:
+        notificacion = Notificacion(
+            usuario_id=publicacion.autor_id,
+            tipo="nuevo_comentario",
+            titulo="Nuevo comentario en tu publicacion",
+            cuerpo=f"{current_user.nombre} {current_user.apellido_paterno} comento tu publicacion",
+            datos={
+                "target_type": "publicacion",
+                "publication_id": str(publicacion_id),
+                "user_id": str(publicacion.autor_id),
+                "commenter_user_id": str(current_user.id),
+            },
+            leida=False,
+        )
+        db.add(notificacion)
+        db.commit()
+
+        try:
+            dispositivo = db.query(DispositivoUsuario).filter(
+                DispositivoUsuario.usuario_id == publicacion.autor_id,
+                DispositivoUsuario.activo == True,
+                DispositivoUsuario.token_push.isnot(None)
+            ).order_by(DispositivoUsuario.ultima_actividad_en.desc()).first()
+
+            if dispositivo and dispositivo.token_push:
+                sent = firebase_push_service.send_to_token(
+                    token=dispositivo.token_push,
+                    title="Nuevo comentario",
+                    body=f"{current_user.nombre} {current_user.apellido_paterno} comento tu publicacion",
+                    data={
+                        "target_type": "publicacion",
+                        "title": "Nuevo comentario",
+                        "body": f"{current_user.nombre} {current_user.apellido_paterno} comento tu publicacion",
+                        "publication_id": str(publicacion_id),
+                        "user_id": str(publicacion.autor_id),
+                        "commenter_user_id": str(current_user.id),
+                    },
+                )
+                logger.info(
+                    "Push nuevo_comentario autor_publicacion=%s comentario_id=%s enviado=%s",
+                    publicacion.autor_id,
+                    nuevo_comentario.id,
+                    sent,
+                )
+            else:
+                logger.warning(
+                    "Sin dispositivo activo para push nuevo_comentario autor_publicacion=%s comentario_id=%s",
+                    publicacion.autor_id,
+                    nuevo_comentario.id,
+                )
+        except Exception:
+            logger.exception(
+                "Error enviando push nuevo_comentario autor_publicacion=%s comentario_id=%s",
+                publicacion.autor_id,
+                nuevo_comentario.id,
+            )
     
     # Registrar auditoría
     auditoria = Auditoria(

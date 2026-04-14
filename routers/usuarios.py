@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, U
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
 from typing import List, Optional
+import logging
 from database import get_db
 from models import (
     Usuario, Seguidor, RolUsuario, EstadoUsuario, Auditoria,
@@ -20,6 +21,7 @@ from services.cloudinary_service import cloudinary_service
 
 
 router = APIRouter(prefix="/api/usuarios", tags=["Usuarios"])
+logger = logging.getLogger("upred.usuarios")
 
 def _parse_bool(value, default=False):
     if value is None:
@@ -309,18 +311,37 @@ def seguir_usuario(
         ).order_by(DispositivoUsuario.ultima_actividad_en.desc()).first()
 
         if dispositivo and dispositivo.token_push:
-            firebase_push_service.send_to_token(
+            sent = firebase_push_service.send_to_token(
                 token=dispositivo.token_push,
                 title="Nuevo seguidor",
                 body=f"{current_user.nombre} {current_user.apellido_paterno} comenzo a seguirte",
                 data={
+                    "target_type": "perfil",
                     "title": "Nuevo seguidor",
                     "body": f"{current_user.nombre} {current_user.apellido_paterno} comenzo a seguirte",
                     "follower_user_id": str(current_user.id),
+                    "user_id": str(usuario_id),
                 },
             )
+            logger.info(
+                "Push nuevo_seguidor usuario_destino=%s follower=%s enviado=%s token_present=%s",
+                usuario_id,
+                current_user.id,
+                sent,
+                bool(dispositivo.token_push),
+            )
+        else:
+            logger.warning(
+                "Sin dispositivo activo para push nuevo_seguidor usuario_destino=%s follower=%s",
+                usuario_id,
+                current_user.id,
+            )
     except Exception:
-        pass
+        logger.exception(
+            "Error enviando push nuevo_seguidor usuario_destino=%s follower=%s",
+            usuario_id,
+            current_user.id,
+        )
     
     return {"message": "Ahora sigues a este usuario"}
 
