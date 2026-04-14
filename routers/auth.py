@@ -350,11 +350,9 @@ def request_password_reset(payload: ForgotPasswordRequest, db: Session = Depends
     )
     db.commit()
 
-    # En debug devolvemos el codigo para pruebas locales
-    if settings.DEBUG:
-        return {"message": generic_message, "reset_code": code}
-
-    return {"message": generic_message}
+    # Actualmente no hay proveedor de correo integrado; devolvemos codigo para flujo móvil.
+    # En producción se recomienda reemplazar esto por envío de correo/SMS y ocultar el código.
+    return {"message": generic_message, "reset_code": code}
 
 
 @router.post("/forgot-password/confirm", response_model=Message)

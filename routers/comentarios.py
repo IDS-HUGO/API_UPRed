@@ -125,9 +125,11 @@ def crear_comentario(
     
     # Registrar auditoría
     auditoria = Auditoria(
-        tipo_accion="crear_comentario",
-        usuario_id=current_user.id,
-        detalles={"comentario_id": nuevo_comentario.id, "publicacion_id": publicacion_id}
+        accion="crear_comentario",
+        entidad="comentarios_publicacion",
+        entidad_id=str(nuevo_comentario.id),
+        actor_usuario_id=current_user.id,
+        detalle={"comentario_id": nuevo_comentario.id, "publicacion_id": publicacion_id}
     )
     db.add(auditoria)
     db.commit()
@@ -262,9 +264,11 @@ def actualizar_comentario(
     
     # Registrar auditoría
     auditoria = Auditoria(
-        tipo_accion="actualizar_comentario",
-        usuario_id=current_user.id,
-        detalles={"comentario_id": comentario_id}
+        accion="actualizar_comentario",
+        entidad="comentarios_publicacion",
+        entidad_id=str(comentario_id),
+        actor_usuario_id=current_user.id,
+        detalle={"comentario_id": comentario_id}
     )
     db.add(auditoria)
     db.commit()
@@ -302,9 +306,11 @@ def eliminar_comentario(
     
     # Registrar auditoría
     auditoria = Auditoria(
-        tipo_accion="eliminar_comentario",
-        usuario_id=current_user.id,
-        detalles={"comentario_id": comentario_id}
+        accion="eliminar_comentario",
+        entidad="comentarios_publicacion",
+        entidad_id=str(comentario_id),
+        actor_usuario_id=current_user.id,
+        detalle={"comentario_id": comentario_id}
     )
     db.add(auditoria)
     db.commit()

@@ -60,11 +60,14 @@ async def _extract_update_data(request: Request):
             "carrera_id": _parse_int(form.get("carrera_id")),
             "cuatrimestre_id": _parse_int(form.get("cuatrimestre_id")),
         }
-        return data, file
+        # patch semantics: ignore omitted/blank fields to avoid nulling NOT NULL columns
+        cleaned = {k: v for k, v in data.items() if v is not None and not (isinstance(v, str) and v.strip() == "")}
+        return cleaned, file
 
     # Fallback para JSON (sin archivo)
     payload = await request.json()
-    return payload, None
+    cleaned = {k: v for k, v in payload.items() if v is not None}
+    return cleaned, None
 
 # =====================================================================
 # ENDPOINTS DE USUARIOS
@@ -211,7 +214,7 @@ async def actualizar_usuario(
             )
     
     # Actualizar otros campos
-    update_data = usuario_data.model_dump(exclude_unset=True)
+    update_data = usuario_data.model_dump(exclude_unset=True, exclude_none=True)
     for key, value in update_data.items():
         setattr(usuario, key, value)
     
@@ -520,7 +523,7 @@ async def actualizar_perfil(
                 detail=f"Error al procesar la foto de perfil: {str(e)}"
             )
 
-    update_data = usuario_update.model_dump(exclude_unset=True)
+    update_data = usuario_update.model_dump(exclude_unset=True, exclude_none=True)
     update_data.pop('correo_institucional', None)
     update_data.pop('id', None)
 

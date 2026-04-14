@@ -3,11 +3,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from routers import ALL_ROUTERS
 from config import settings
+import logging
 
 # Comentar esta línea para que no cree tablas automáticamente (usaremos el script SQL)
 # Base.metadata.create_all(bind=engine)
 
 def create_app() -> FastAPI:
+    logging.basicConfig(
+        level=logging.DEBUG if settings.DEBUG else logging.INFO,
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    )
     app = FastAPI(
         title="API UPRed - Red Social Universitaria",
         description="API REST completa para red social universitaria con estructura académica, publicaciones, grupos, mensajería y notificaciones",
