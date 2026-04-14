@@ -224,6 +224,16 @@ def sincronizar_eventos_diferidos(
     return {"message": f"{len(payload.events)} eventos sincronizados"}
 
 
+@router.get("/push/status")
+def estado_push():
+    """Retorna si el backend de Firebase Push está habilitado"""
+    status = firebase_push_service.get_status()
+    return {
+        "firebase_push_enabled": status["enabled"],
+        "service_account_path_present": status["service_account_path_present"],
+    }
+
+
 @router.post("/push/test", response_model=Message)
 def enviar_push_prueba(
     db: Session = Depends(get_db),

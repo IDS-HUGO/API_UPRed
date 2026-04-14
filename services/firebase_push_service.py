@@ -18,6 +18,7 @@ except Exception:  # pragma: no cover
 class FirebasePushService:
     def __init__(self) -> None:
         self._enabled = False
+        self._credential_path = ""
         self._logger = logging.getLogger("upred.firebase_push")
         self._initialize()
 
@@ -27,6 +28,8 @@ class FirebasePushService:
             return
 
         credential_path = settings.FIREBASE_SERVICE_ACCOUNT_PATH or os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH", "")
+        self._credential_path = credential_path
+
         if not credential_path:
             self._logger.warning("FIREBASE_SERVICE_ACCOUNT_PATH vacio. Push deshabilitado.")
             return
@@ -44,6 +47,12 @@ class FirebasePushService:
     @property
     def enabled(self) -> bool:
         return self._enabled
+
+    def get_status(self) -> dict[str, bool]:
+        return {
+            "enabled": self._enabled,
+            "service_account_path_present": bool(self._credential_path),
+        }
 
     def send_to_token(
         self,
