@@ -100,7 +100,6 @@ CREATE TABLE usuarios (
     fecha_nacimiento        DATE NOT NULL,
     telefono                VARCHAR(30),
     foto_perfil_url         TEXT,
-    foto_perfil_data        MEDIUMBLOB,
     biografia               TEXT,
     carrera_id              BIGINT,
     cuatrimestre_id         BIGINT,

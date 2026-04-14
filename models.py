@@ -156,7 +156,6 @@ class Usuario(Base):
     fecha_nacimiento = Column(Date, nullable=False)
     telefono = Column(String(30))
     foto_perfil_url = Column(Text)
-    foto_perfil_data = Column(LargeBinary)  # Almacenar imagen en BD
     biografia = Column(Text)
     carrera_id = Column(BigInteger, ForeignKey("carreras.id", ondelete="SET NULL"))
     cuatrimestre_id = Column(BigInteger, ForeignKey("cuatrimestres.id", ondelete="SET NULL"))

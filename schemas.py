@@ -153,7 +153,6 @@ class UsuarioBase(BaseModel):
     apellido_materno: Optional[str] = Field(None, max_length=80)
     fecha_nacimiento: date
     telefono: Optional[str] = Field(None, max_length=30)
-    foto_perfil_url: Optional[str] = None
     biografia: Optional[str] = None
     carrera_id: Optional[int] = None
     cuatrimestre_id: Optional[int] = None
@@ -167,13 +166,37 @@ class UsuarioUpdate(BaseModel):
     apellido_materno: Optional[str] = Field(None, max_length=80)
     fecha_nacimiento: Optional[date] = None
     telefono: Optional[str] = Field(None, max_length=30)
-    foto_perfil_url: Optional[str] = None
+    biografia: Optional[str] = None
+    carrera_id: Optional[int] = None
+    cuatrimestre_id: Optional[int] = None
+
+# Esquemas para registro con archivo de foto de perfil
+class UsuarioCreateWithFile(BaseModel):
+    correo_institucional: EmailStr
+    password: str = Field(..., min_length=6, max_length=100)
+    nombre: str = Field(..., min_length=1, max_length=80)
+    apellido_paterno: str = Field(..., min_length=1, max_length=80)
+    apellido_materno: Optional[str] = Field(None, max_length=80)
+    fecha_nacimiento: date
+    telefono: Optional[str] = Field(None, max_length=30)
+    biografia: Optional[str] = None
+    carrera_id: Optional[int] = None
+    cuatrimestre_id: Optional[int] = None
+
+# Esquemas para actualización con archivo de foto de perfil
+class UsuarioUpdateWithFile(BaseModel):
+    nombre: Optional[str] = Field(None, min_length=1, max_length=80)
+    apellido_paterno: Optional[str] = Field(None, min_length=1, max_length=80)
+    apellido_materno: Optional[str] = Field(None, max_length=80)
+    fecha_nacimiento: Optional[date] = None
+    telefono: Optional[str] = Field(None, max_length=30)
     biografia: Optional[str] = None
     carrera_id: Optional[int] = None
     cuatrimestre_id: Optional[int] = None
 
 class UsuarioResponse(UsuarioBase):
     id: int
+    foto_perfil_url: Optional[str] = None
     rol: RolUsuario
     estado: EstadoUsuario
     correo_verificado: bool

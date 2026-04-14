@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta, datetime
@@ -9,19 +9,82 @@ from database import get_db
 from models import Usuario, CatalogoCorreo, RolUsuario, EstadoUsuario, Auditoria, Carrera
 from schemas import (
     UsuarioCreate, UsuarioResponse, Token, UsuarioLogin, Message,
-    ForgotPasswordRequest, ForgotPasswordConfirmRequest, ForgotPasswordRequestResponse
+    ForgotPasswordRequest, ForgotPasswordConfirmRequest, ForgotPasswordRequestResponse,
+    UsuarioCreateWithFile
 )
 from auth import (
     get_password_hash, authenticate_user, create_access_token,
     get_current_user
 )
 from config import settings
+from services.cloudinary_service import cloudinary_service
 
 router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
 
+def _parse_bool(value, default=False):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    value_str = str(value).strip().lower()
+    return value_str in ('true', '1', 'yes', 'on')
+
+def _parse_int(value):
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    value_str = str(value).strip()
+    if value_str == "":
+        return None
+    try:
+        return int(value_str)
+    except ValueError:
+        return None
+
+async def _extract_register_data(request: Request):
+    """Extrae datos del registro, incluyendo archivo de foto de perfil"""
+    content_type = request.headers.get("content-type", "")
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        file = form.get("foto_perfil")
+        data = {
+            "correo_institucional": form.get("correo_institucional"),
+            "password": form.get("password"),
+            "nombre": form.get("nombre"),
+            "apellido_paterno": form.get("apellido_paterno"),
+            "apellido_materno": form.get("apellido_materno"),
+            "fecha_nacimiento": form.get("fecha_nacimiento"),
+            "telefono": form.get("telefono"),
+            "biografia": form.get("biografia"),
+            "carrera_id": _parse_int(form.get("carrera_id")),
+            "cuatrimestre_id": _parse_int(form.get("cuatrimestre_id")),
+        }
+        return data, file
+
+    # Fallback para JSON (sin archivo)
+    payload = await request.json()
+    return payload, None
+
 @router.post("/register", response_model=UsuarioResponse, status_code=status.HTTP_201_CREATED)
-def register(usuario_data: UsuarioCreate, db: Session = Depends(get_db)):
+async def register(request: Request, db: Session = Depends(get_db)):
     """Registra un nuevo usuario en el sistema (correo institucional valido)"""
+    try:
+        payload, file = await _extract_register_data(request)
+        
+        # Validar datos básicos
+        if not payload.get("correo_institucional") or not payload.get("password"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Correo institucional y contraseña son requeridos"
+            )
+        
+        usuario_data = UsuarioCreateWithFile.model_validate(payload)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Datos inválidos: {str(e)}"
+        )
     
     # Verificar si el correo ya está registrado
     email = usuario_data.correo_institucional.strip().lower()
@@ -85,7 +148,32 @@ def register(usuario_data: UsuarioCreate, db: Session = Depends(get_db)):
     carrera_id = usuario_data.carrera_id or catalogo.carrera_id
     cuatrimestre_id = usuario_data.cuatrimestre_id or catalogo.cuatrimestre_id
     
-    # Crear nuevo usuario
+    # Procesar foto de perfil si se proporcionó
+    foto_perfil_url = None
+    file_data = None
+    if file and file.filename:
+        if not file.content_type or not file.content_type.startswith("image/"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Solo se permiten imágenes para la foto de perfil"
+            )
+        
+        try:
+            file_data = await file.read()
+            if len(file_data) > 5 * 1024 * 1024:  # 5MB máximo
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="La foto de perfil no debe superar 5MB"
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error al procesar la foto de perfil: {str(e)}"
+            )
+    
+    # Crear nuevo usuario sin URL de foto todavía
     hashed_password = get_password_hash(usuario_data.password)
     new_user = Usuario(
         correo_institucional=email,
@@ -95,7 +183,7 @@ def register(usuario_data: UsuarioCreate, db: Session = Depends(get_db)):
         apellido_materno=usuario_data.apellido_materno,
         fecha_nacimiento=usuario_data.fecha_nacimiento,
         telefono=usuario_data.telefono,
-        foto_perfil_url=usuario_data.foto_perfil_url,
+        foto_perfil_url=None,
         biografia=usuario_data.biografia,
         carrera_id=carrera_id,
         cuatrimestre_id=cuatrimestre_id,
@@ -106,6 +194,25 @@ def register(usuario_data: UsuarioCreate, db: Session = Depends(get_db)):
     
     db.add(new_user)
     db.flush()  # Para obtener el ID sin hacer commit
+    
+    # Subir la foto a Cloudinary usando el ID real del usuario
+    if file_data is not None:
+        if not cloudinary_service.is_configured():
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Servicio de almacenamiento de imágenes no disponible"
+            )
+        try:
+            public_id = f"perfiles/{new_user.id}"
+            foto_perfil_url = cloudinary_service.upload_image(file_data, public_id)
+            new_user.foto_perfil_url = foto_perfil_url
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error al guardar la foto de perfil: {str(e)}"
+            )
     
     # Marcar el correo del catálogo como usado
     catalogo.usado = True

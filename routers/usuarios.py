@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, UploadFile
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
 from typing import List, Optional
@@ -10,14 +10,59 @@ from models import (
 )
 from schemas import (
     UsuarioResponse, UsuarioUpdate, Message,
-    SeguidorCreate, SeguidorResponse, BusquedaUsuarios
+    SeguidorCreate, SeguidorResponse, BusquedaUsuarios,
+    UsuarioUpdateWithFile
 )
 from auth import get_current_user, require_roles
 from datetime import datetime
 from services.firebase_push_service import firebase_push_service
+from services.cloudinary_service import cloudinary_service
 
 
 router = APIRouter(prefix="/api/usuarios", tags=["Usuarios"])
+
+def _parse_bool(value, default=False):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    value_str = str(value).strip().lower()
+    return value_str in ('true', '1', 'yes', 'on')
+
+def _parse_int(value):
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    value_str = str(value).strip()
+    if value_str == "":
+        return None
+    try:
+        return int(value_str)
+    except ValueError:
+        return None
+
+async def _extract_update_data(request: Request):
+    """Extrae datos de actualización de usuario, incluyendo archivo de foto de perfil"""
+    content_type = request.headers.get("content-type", "")
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        file = form.get("foto_perfil")
+        data = {
+            "nombre": form.get("nombre"),
+            "apellido_paterno": form.get("apellido_paterno"),
+            "apellido_materno": form.get("apellido_materno"),
+            "fecha_nacimiento": form.get("fecha_nacimiento"),
+            "telefono": form.get("telefono"),
+            "biografia": form.get("biografia"),
+            "carrera_id": _parse_int(form.get("carrera_id")),
+            "cuatrimestre_id": _parse_int(form.get("cuatrimestre_id")),
+        }
+        return data, file
+
+    # Fallback para JSON (sin archivo)
+    payload = await request.json()
+    return payload, None
 
 # =====================================================================
 # ENDPOINTS DE USUARIOS
@@ -100,9 +145,9 @@ def obtener_usuario(usuario_id: int, db: Session = Depends(get_db)):
     return usuario
 
 @router.put("/{usuario_id}", response_model=UsuarioResponse)
-def actualizar_usuario(
+async def actualizar_usuario(
     usuario_id: int,
-    usuario_data: UsuarioUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -121,6 +166,49 @@ def actualizar_usuario(
             detail="No tienes permisos para actualizar este usuario"
         )
     
+    try:
+        payload, file = await _extract_update_data(request)
+        usuario_data = UsuarioUpdateWithFile.model_validate(payload)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Datos inválidos: {str(e)}"
+        )
+    
+    # Procesar foto de perfil si se proporcionó
+    if file and file.filename:
+        if not file.content_type or not file.content_type.startswith("image/"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Solo se permiten imágenes para la foto de perfil"
+            )
+        
+        try:
+            file_data = await file.read()
+            if len(file_data) > 5 * 1024 * 1024:  # 5MB máximo
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="La foto de perfil no debe superar 5MB"
+                )
+            
+            public_id = f"perfiles/{usuario_id}"
+            if cloudinary_service.is_configured():
+                foto_perfil_url = cloudinary_service.upload_image(file_data, public_id)
+                usuario.foto_perfil_url = foto_perfil_url
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Servicio de almacenamiento de imágenes no disponible"
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error al procesar la foto de perfil: {str(e)}"
+            )
+    
+    # Actualizar otros campos
     update_data = usuario_data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(usuario, key, value)
@@ -361,8 +449,8 @@ def obtener_perfil_actual(
 
 
 @router.put("/perfil/actualizar", response_model=UsuarioResponse)
-def actualizar_perfil(
-    usuario_update: UsuarioUpdate,
+async def actualizar_perfil(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -374,20 +462,53 @@ def actualizar_perfil(
             detail="Usuario no encontrado"
         )
     
-    # Actualizar campos permitidos
+    try:
+        payload, file = await _extract_update_data(request)
+        usuario_update = UsuarioUpdateWithFile.model_validate(payload)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Datos inválidos: {str(e)}"
+        )
+
+    if file and file.filename:
+        if not file.content_type or not file.content_type.startswith("image/"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Solo se permiten imágenes para la foto de perfil"
+            )
+        try:
+            file_data = await file.read()
+            if len(file_data) > 5 * 1024 * 1024:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="La foto de perfil no debe superar 5MB"
+                )
+            if not cloudinary_service.is_configured():
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Servicio de almacenamiento de imágenes no disponible"
+                )
+            public_id = f"perfiles/{current_user.id}"
+            usuario.foto_perfil_url = cloudinary_service.upload_image(file_data, public_id)
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error al procesar la foto de perfil: {str(e)}"
+            )
+
     update_data = usuario_update.model_dump(exclude_unset=True)
-    
-    # Excluir cambios de email o ID
     update_data.pop('correo_institucional', None)
     update_data.pop('id', None)
-    
+
     for key, value in update_data.items():
         setattr(usuario, key, value)
     
     db.commit()
     db.refresh(usuario)
     
-    # Registrar auditoría
     auditoria = Auditoria(
         accion="actualizar_perfil",
         entidad="usuarios",
