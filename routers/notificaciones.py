@@ -25,6 +25,7 @@ router = APIRouter(prefix="/api/notificaciones", tags=["Notificaciones"])
 # ENDPOINTS DE NOTIFICACIONES
 # =====================================================================
 
+@router.get("", response_model=List[NotificacionResponse], include_in_schema=False)
 @router.get("/", response_model=List[NotificacionResponse])
 def listar_mis_notificaciones(
     leida: Optional[bool] = None,
