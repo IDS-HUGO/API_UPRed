@@ -17,7 +17,7 @@ from auth import (
     get_current_user
 )
 from config import settings
-from services.cloudinary_service import cloudinary_service
+from services.profile_photo import try_upload_profile_photo
 
 router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
 
@@ -195,24 +195,17 @@ async def register(request: Request, db: Session = Depends(get_db)):
     db.add(new_user)
     db.flush()  # Para obtener el ID sin hacer commit
     
-    # Subir la foto a Cloudinary usando el ID real del usuario
+    # Subir la foto a Cloudinary (si falla o no hay config, registro sigue sin foto — como fallback en publicaciones)
     if file_data is not None:
-        if not cloudinary_service.is_configured():
-            db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Servicio de almacenamiento de imágenes no disponible"
-            )
-        try:
-            public_id = f"perfiles/{new_user.id}"
-            foto_perfil_url = cloudinary_service.upload_image(file_data, public_id)
-            new_user.foto_perfil_url = foto_perfil_url
-        except Exception as e:
-            db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error al guardar la foto de perfil: {str(e)}"
-            )
+        url = try_upload_profile_photo(
+            file_bytes=file_data,
+            user_id=new_user.id,
+            db=db,
+            actor_usuario_id=new_user.id,
+            context="register",
+        )
+        if url:
+            new_user.foto_perfil_url = url
     
     # Marcar el correo del catálogo como usado
     catalogo.usado = True

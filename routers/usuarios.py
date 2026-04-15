@@ -17,7 +17,7 @@ from schemas import (
 from auth import get_current_user, require_roles
 from datetime import datetime
 from services.firebase_push_service import firebase_push_service
-from services.cloudinary_service import cloudinary_service
+from services.profile_photo import try_upload_profile_photo
 
 
 router = APIRouter(prefix="/api/usuarios", tags=["Usuarios"])
@@ -212,15 +212,15 @@ async def actualizar_usuario(
                     detail="La foto de perfil no debe superar 5MB"
                 )
             
-            public_id = f"perfiles/{usuario_id}"
-            if cloudinary_service.is_configured():
-                foto_perfil_url = cloudinary_service.upload_image(file_data, public_id)
-                usuario.foto_perfil_url = foto_perfil_url
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Servicio de almacenamiento de imágenes no disponible"
-                )
+            url = try_upload_profile_photo(
+                file_bytes=file_data,
+                user_id=usuario_id,
+                db=db,
+                actor_usuario_id=current_user.id,
+                context="actualizar_usuario",
+            )
+            if url:
+                usuario.foto_perfil_url = url
         except HTTPException:
             raise
         except Exception as e:
@@ -530,13 +530,15 @@ async def actualizar_perfil(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="La foto de perfil no debe superar 5MB"
                 )
-            if not cloudinary_service.is_configured():
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Servicio de almacenamiento de imágenes no disponible"
-                )
-            public_id = f"perfiles/{current_user.id}"
-            usuario.foto_perfil_url = cloudinary_service.upload_image(file_data, public_id)
+            url = try_upload_profile_photo(
+                file_bytes=file_data,
+                user_id=current_user.id,
+                db=db,
+                actor_usuario_id=current_user.id,
+                context="actualizar_perfil",
+            )
+            if url:
+                usuario.foto_perfil_url = url
         except HTTPException:
             raise
         except Exception as e:
