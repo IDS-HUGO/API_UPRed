@@ -97,12 +97,12 @@ async def register(request: Request, db: Session = Depends(get_db)):
             detail="El correo electrónico ya está registrado"
         )
     
-    # Validar formato institucional: 6 digitos + @ + codigo carrera + .upchiapas.edu.mx
-    match = re.match(r"^(\d{6})@([a-z0-9][a-z0-9.-]{1,20})\.upchiapas\.edu\.mx$", email)
+    # Validar formato institucional: 5-6 digitos (matricula) + @ + codigo carrera + .upchiapas.edu.mx
+    match = re.match(r"^(\d{5,6})@([a-z0-9][a-z0-9.-]{1,20})\.upchiapas\.edu\.mx$", email)
     if not match:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="El correo no esta autorizado. Formato: 6 digitos + @ + codigo carrera + .upchiapas.edu.mx"
+            detail="El correo no esta autorizado. Formato: 5 o 6 digitos + @ + codigo carrera + .upchiapas.edu.mx (ej. 233325@ids.upchiapas.edu.mx)"
         )
 
     # Verificar o crear entrada en catalogo para controlar uso
